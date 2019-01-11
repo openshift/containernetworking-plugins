@@ -1,4 +1,4 @@
-language: go
+language: generic
 # see https://docs.travis-ci.com/user/reference/overview/#Virtualization-environments
 # for the detail
 # sudo: requried
