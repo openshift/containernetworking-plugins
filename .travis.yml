@@ -20,6 +20,8 @@ script:
 
 deploy:
   - provider: script
+    on:
+      branch: develop
     script: >
       bash -c '
       docker login -u "$REGISTRY_USER" -p "$REGISTRY_PASS";
