@@ -21,7 +21,7 @@ script:
 deploy:
   - provider: script
     on:
-      branch: develop
+      branch: image-builder
     script: >
       bash -c '
       docker login -u "$REGISTRY_USER" -p "$REGISTRY_PASS";
