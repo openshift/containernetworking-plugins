@@ -23,4 +23,4 @@ Some CNI network plugins, maintained by the containernetworking team. For more i
 * `portmap`: An iptables-based portmapping plugin. Maps ports from the host's address space to the container.
 
 ### Sample
-The sample plugin provides an example for building your own plugin. 
+The sample plugin provides an example for building your own plugin.
