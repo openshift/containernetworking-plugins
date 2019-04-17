@@ -15,6 +15,7 @@ fi
 
 export GO15VENDOREXPERIMENT=1
 export GOPATH=${PWD}/gopath
+export CGO_ENABLED=0
 
 mkdir -p "${PWD}/bin"
 
