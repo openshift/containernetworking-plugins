@@ -6,7 +6,7 @@ ADD . /usr/src/plugins
 
 ENV SUPPORTED "macvlan dhcp host-device"
 WORKDIR /usr/src/plugins
-RUN ./build.sh && \
+RUN ./build_linux.sh && \
     cd /usr/src/plugins/bin && \
     rm -f $SUPPORTED
 

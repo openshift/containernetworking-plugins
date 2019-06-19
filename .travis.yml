@@ -1,31 +1,50 @@
-language: generic
-# see https://docs.travis-ci.com/user/reference/overview/#Virtualization-environments
-# for the detail
-# sudo: requried
+language: go
+sudo: required
 dist: trusty
+
+go:
+  - 1.11.x
+  - 1.12.x
 
 env:
   global:
-  - secure: "XHgXgMrfkHeG77vxT5dWIJ8A0A4acZ90Lf8JWPWff2XQRnV9wJXUG+og7b8e7lzytVT7bui8yNx7Gpxf6zeCXVoMO6bf1TipD//Dfofqcu+QLs9gP6iCACdPAt629ZV3NWuzFChkiJOuOsvg8qyZwEVZ8M06GrpR26wzb1+zffG4SZQK7NoBSU0ksVSYRadK27WYHxBmLsWx2u9/dfM2LYxrFitQxDaQmrM8vNvaM3vomS0zvMBwvNCS4TtL4y1IjxJrVh5luQD8l04zjGEgzGn2cF4qc8+pSoBGOKq601Ep2+UM8EPrXs0Ul+YUFZr4k1ChR9rj4gkHVr0HjaLFf+8H11pfIZVzTYblKxVFvj4v+iPhVX9MBlEtTdJF3ln7G2NQqWrzHTJpqDk3Gms3HXRg7lIlzpKyi90sIVrcQMsuoy0Z//BRUNgCXGfaA6BUPZ3YpqJ5TzzS8PZeAC2LyWqNuxSMT/40eEF7pKiRl9L4jBg9Bdn9HoyTpgWMsEoiZC+Y8KDOPeol7zWrEgAs/zp1w7HycBI3uKUQEg6MdeTiV1b8Ho569aRIt0Tc7DjigERSbdEAmU6mSV/N0VmpauT0qDzJEHeUawTFiH+LtkUo15wGm/grbTYcnDaDuxUsKbk1LVAbkTvg86YAFt6jx5waiJh9NxSYZC3yb/w6ujk="
-  - secure: "DVlALOarYEgzhtgZiDY8WHbp2pTu3X9dj4XnXeEWcHpMKdi98nDXA40xZxxS+OzoiOW8yvQUOShM/2AwMf8aLtABOgJmEZcyNsuDxks79CJOoMpOERSG1py8Fam7IBxS+AjQUYdu7BDSKAECld+5m+so9evYkbbgBHNLixaEqvRxuH6flIm21URcAGDMFsFdkcwQzSeVpRBuA57lgWcROwIxPOJYln4leGzfrMGanMgRQ+h2RQ+nCkCawysksCc9i7sdT9Hk6cd01XrOyh4iv5w6qaSyaksw/OAMRMlq/DKXxcaO9JaSQk6Snfhvo7ZxhttPOvNmB/oND/N/G+dyOi29ebNluPLil34hN+avB0sO7oAHHDNVkmEEk3IjOYj0j57sP81CcvqQLFiwww/JeT6snwmKyQ6bh7zSeFOYEzwL/1RmSpA3p8YvmLkxptpHAoSTB95wNU776TAtzH7Ans53CkzECou7wjHm4lTfd/BAJVkFQz+ZbdCDP4h+982Q/lPbKpvTvgrBXzDwH+vaCo2IuOziJ9tgqU53K51bCPslRgkdFls7Z1AajcgU2dK48sjBj7l6ILmcdvFnxGCPzNh6Z/B9lxhpq+1Z1HQt36NUmwk8/6hSUx1LaF4qytrUPbKlv3NPOhqgFvr2M/j+RNGJcF7Pid0D0NznhUXLoF8="
+  - PATH=$GOROOT/bin:$GOPATH/bin:$PATH
+  - CGO_ENABLED=0
+  matrix:
+  - TARGET=386
+  - TARGET=amd64
+  - TARGET=arm
+  - TARGET=arm64
+  - TARGET=ppc64le
+  - TARGET=s390x
 
-# before_script:
-#   - golint pkg/... cmd/...
-#   - go fmt pkg/... cmd/...
-#   - go vet pkg/... cmd/...
+matrix:
+  fast_finish: true
+  include:
+    - os: windows
+      env: TARGET=amd64
+      go: 1.11.x
+    - os: windows
+      env: TARGET=amd64
+      go: 1.12.x
+
+install:
+  - go get github.com/onsi/ginkgo/ginkgo
+  - go get github.com/containernetworking/cni/cnitool
+  - go get golang.org/x/tools/cmd/cover
+  - go get github.com/modocache/gover
+  - go get github.com/mattn/goveralls
 
 script:
-  - docker build -f images/supported/Dockerfile -t nfvpe/container-networking-plugins-supported .
-  - docker build -f images/unsupported/Dockerfile  -t nfvpe/container-networking-plugins-unsupported .
+ - |
+   if [ "${TARGET}" == "amd64" ]; then
+     GOARCH="${TARGET}" ./test_${TRAVIS_OS_NAME}.sh
+   else
+     GOARCH="${TARGET}" ./build_linux.sh
+   fi
 
-deploy:
-  - provider: script
-    on:
-      branch: image-builder
-    script: >
-      bash -c '
-      docker login -u "$REGISTRY_USER" -p "$REGISTRY_PASS";
-      docker push nfvpe/container-networking-plugins-supported;
-      docker push nfvpe/container-networking-plugins-unsupported;
-      echo foo'
+notifications:
+  email: false
 
+git:
+  depth: 9999999
