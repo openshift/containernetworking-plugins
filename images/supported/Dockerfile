@@ -4,7 +4,7 @@ FROM openshift/origin-release:golang-1.10 as builder
 # Add everything
 ADD . /usr/src/plugins
 
-ENV SUPPORTED "macvlan dhcp host-device"
+ENV SUPPORTED "macvlan dhcp host-device bridge static ipvlan"
 WORKDIR /usr/src/plugins
 RUN ./build_linux.sh && \
     cd /usr/src/plugins/bin && \
