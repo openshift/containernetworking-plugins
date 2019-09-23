@@ -49,27 +49,6 @@ func cmdAdd(args *skel.CmdArgs) error {
 }
 
 func cmdDel(args *skel.CmdArgs) error {
-	if args.Netns == "" {
-		return nil
-	}
-	args.IfName = "lo" // ignore config, this only works for loopback
-	err := ns.WithNetNSPath(args.Netns, func(ns.NetNS) error {
-		link, err := netlink.LinkByName(args.IfName)
-		if err != nil {
-			return err // not tested
-		}
-
-		err = netlink.LinkSetDown(link)
-		if err != nil {
-			return err // not tested
-		}
-
-		return nil
-	})
-	if err != nil {
-		return err // not tested
-	}
-
 	return nil
 }
 
