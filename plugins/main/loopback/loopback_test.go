@@ -82,6 +82,7 @@ var _ = Describe("Loopback", func() {
 		It("sets the lo device to DOWN", func() {
 
 			Skip("TODO: add network name")
+			Skip("We don't want to tear loopback down")
 			command.Env = append(environ, fmt.Sprintf("CNI_COMMAND=%s", "DEL"))
 
 			session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
