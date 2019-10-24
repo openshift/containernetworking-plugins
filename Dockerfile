@@ -5,7 +5,7 @@ FROM openshift/origin-release:golang-1.10 as builder
 ADD . /usr/src/plugins
 
 WORKDIR /usr/src/plugins
-ENV CGO_ENABLED=0
+ENV CGO_ENABLED=1
 RUN ./build_linux.sh && \
     cd /usr/src/plugins/bin
 
