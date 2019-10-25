@@ -26,11 +26,7 @@ for d in $PLUGINS; do
 		plugin="$(basename "$d")"
 		if [ $plugin != "windows" ]; then
 			echo "  $plugin"
-                        if [ $plugin == "loopback" ]; then
-                           $GO build -tags no_openssl -o "${PWD}/bin/$plugin" "$@" "$REPO_PATH"/$d
-                        else
-                           $GO build -o "${PWD}/bin/$plugin" "$@" "$REPO_PATH"/$d
-                        fi
+			$GO build -o "${PWD}/bin/$plugin" "$@" "$REPO_PATH"/$d
 		fi
 	fi
 done
