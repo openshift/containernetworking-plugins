@@ -75,6 +75,9 @@ func loadNetConf(bytes []byte) (*NetConf, string, error) {
 	if err := json.Unmarshal(bytes, n); err != nil {
 		return nil, "", fmt.Errorf("failed to load netconf: %v", err)
 	}
+	if n.Vlan < 0 || n.Vlan > 4094 {
+		return nil, "", fmt.Errorf("invalid VLAN ID %d (must be between 0 and 4094)", n.Vlan)
+	}
 	return n, n.CNIVersion, nil
 }
 
@@ -175,7 +178,7 @@ func ensureAddr(br netlink.Link, family int, ipn *net.IPNet, forceAddress bool) 
 	}
 
 	addr := &netlink.Addr{IPNet: ipn, Label: ""}
-	if err := netlink.AddrAdd(br, addr); err != nil {
+	if err := netlink.AddrAdd(br, addr); err != nil && err != syscall.EEXIST {
 		return fmt.Errorf("could not add IP address to %q: %v", br.Attrs().Name, err)
 	}
 
@@ -221,7 +224,9 @@ func ensureBridge(brName string, mtu int, promiscMode, vlanFiltering bool) (*net
 			// default packet limit
 			TxQLen: -1,
 		},
-		VlanFiltering: &vlanFiltering,
+	}
+	if vlanFiltering {
+		br.VlanFiltering = &vlanFiltering
 	}
 
 	err := netlink.LinkAdd(br)

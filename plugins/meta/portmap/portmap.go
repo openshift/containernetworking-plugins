@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/containernetworking/plugins/pkg/utils"
 	"github.com/containernetworking/plugins/pkg/utils/sysctl"
 	"github.com/coreos/go-iptables/iptables"
 )
@@ -123,7 +124,7 @@ func checkPorts(config *PortMapConf, containerIP net.IP) error {
 	}
 
 	if ip4t != nil {
-		exists, err := chainExists(ip4t, dnatChain.table, dnatChain.name)
+		exists, err := utils.ChainExists(ip4t, dnatChain.table, dnatChain.name)
 		if err != nil {
 			return err
 		}
@@ -136,7 +137,7 @@ func checkPorts(config *PortMapConf, containerIP net.IP) error {
 	}
 
 	if ip6t != nil {
-		exists, err := chainExists(ip6t, dnatChain.table, dnatChain.name)
+		exists, err := utils.ChainExists(ip6t, dnatChain.table, dnatChain.name)
 		if err != nil {
 			return err
 		}
@@ -172,7 +173,7 @@ func genToplevelDnatChain() chain {
 func genDnatChain(netName, containerID string) chain {
 	return chain{
 		table:       "nat",
-		name:        formatChainName("DN-", netName, containerID),
+		name:        utils.MustFormatChainNameWithPrefix(netName, containerID, "DN-"),
 		entryChains: []string{TopLevelDNATChainName},
 	}
 }
@@ -223,6 +224,16 @@ func fillDnatRules(c *chain, config *PortMapConf, containerIP net.IP) {
 	// the ordering is important here; the mark rules must be first.
 	c.rules = make([][]string, 0, 3*len(entries))
 	for _, entry := range entries {
+		// If a HostIP is given, only process the entry if host and container address families match
+		if entry.HostIP != "" {
+			hostIP := net.ParseIP(entry.HostIP)
+			isHostV6 := (hostIP.To4() == nil)
+
+			if isV6 != isHostV6 {
+				continue
+			}
+		}
+
 		ruleBase := []string{
 			"-p", entry.Protocol,
 			"--dport", strconv.Itoa(entry.HostPort)}
@@ -323,11 +334,9 @@ func enableLocalnetRouting(ifName string) error {
 // genOldSnatChain is no longer used, but used to be created. We'll try and
 // tear it down in case the plugin version changed between ADD and DEL
 func genOldSnatChain(netName, containerID string) chain {
-	name := formatChainName("SN-", netName, containerID)
-
 	return chain{
 		table:       "nat",
-		name:        name,
+		name:        utils.MustFormatChainNameWithPrefix(netName, containerID, "SN-"),
 		entryChains: []string{OldTopLevelSNATChainName},
 	}
 }

@@ -15,9 +15,9 @@
 package main
 
 import (
-	"crypto/sha1"
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"github.com/vishvananda/netlink"
 
@@ -28,17 +28,21 @@ import (
 
 	"github.com/containernetworking/plugins/pkg/ip"
 	"github.com/containernetworking/plugins/pkg/ns"
+	"github.com/containernetworking/plugins/pkg/utils"
 	bv "github.com/containernetworking/plugins/pkg/utils/buildversion"
 )
+
+const maxIfbDeviceLength = 15
+const ifbDevicePrefix = "bwp"
 
 // BandwidthEntry corresponds to a single entry in the bandwidth argument,
 // see CONVENTIONS.md
 type BandwidthEntry struct {
-	IngressRate  int `json:"ingressRate"`  //Bandwidth rate in bps for traffic through container. 0 for no limit. If ingressRate is set, ingressBurst must also be set
-	IngressBurst int `json:"ingressBurst"` //Bandwidth burst in bits for traffic through container. 0 for no limit. If ingressBurst is set, ingressRate must also be set
+	IngressRate  uint64 `json:"ingressRate"`  //Bandwidth rate in bps for traffic through container. 0 for no limit. If ingressRate is set, ingressBurst must also be set
+	IngressBurst uint64 `json:"ingressBurst"` //Bandwidth burst in bits for traffic through container. 0 for no limit. If ingressBurst is set, ingressRate must also be set
 
-	EgressRate  int `json:"egressRate"`  //Bandwidth rate in bps for traffic through container. 0 for no limit. If egressRate is set, egressBurst must also be set
-	EgressBurst int `json:"egressBurst"` //Bandwidth burst in bits for traffic through container. 0 for no limit. If egressBurst is set, egressRate must also be set
+	EgressRate  uint64 `json:"egressRate"`  //Bandwidth rate in bps for traffic through container. 0 for no limit. If egressRate is set, egressBurst must also be set
+	EgressBurst uint64 `json:"egressBurst"` //Bandwidth burst in bits for traffic through container. 0 for no limit. If egressBurst is set, egressRate must also be set
 }
 
 func (bw *BandwidthEntry) isZero() bool {
@@ -98,7 +102,7 @@ func getBandwidth(conf *PluginConf) *BandwidthEntry {
 	return conf.BandwidthEntry
 }
 
-func validateRateAndBurst(rate int, burst int) error {
+func validateRateAndBurst(rate, burst uint64) error {
 	switch {
 	case burst < 0 || rate < 0:
 		return fmt.Errorf("rate and burst must be a positive integer")
@@ -106,19 +110,15 @@ func validateRateAndBurst(rate int, burst int) error {
 		return fmt.Errorf("if rate is set, burst must also be set")
 	case rate == 0 && burst != 0:
 		return fmt.Errorf("if burst is set, rate must also be set")
+	case burst/8 >= math.MaxUint32:
+		return fmt.Errorf("burst cannot be more than 4GB")
 	}
 
 	return nil
 }
 
-func getIfbDeviceName(networkName string, containerId string) (string, error) {
-	hash := sha1.New()
-	_, err := hash.Write([]byte(networkName + containerId))
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("%x", hash.Sum(nil))[:4], nil
+func getIfbDeviceName(networkName string, containerId string) string {
+	return utils.MustFormatHashWithPrefix(maxIfbDeviceLength, ifbDevicePrefix, networkName+containerId)
 }
 
 func getMTU(deviceName string) (int, error) {
@@ -205,10 +205,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 			return err
 		}
 
-		ifbDeviceName, err := getIfbDeviceName(conf.Name, args.ContainerID)
-		if err != nil {
-			return err
-		}
+		ifbDeviceName := getIfbDeviceName(conf.Name, args.ContainerID)
 
 		err = CreateIfb(ifbDeviceName, mtu)
 		if err != nil {
@@ -239,10 +236,7 @@ func cmdDel(args *skel.CmdArgs) error {
 		return err
 	}
 
-	ifbDeviceName, err := getIfbDeviceName(conf.Name, args.ContainerID)
-	if err != nil {
-		return err
-	}
+	ifbDeviceName := getIfbDeviceName(conf.Name, args.ContainerID)
 
 	if err := TeardownIfb(ifbDeviceName); err != nil {
 		return err
@@ -343,10 +337,7 @@ func cmdCheck(args *skel.CmdArgs) error {
 		latency := latencyInUsec(latencyInMillis)
 		limitInBytes := limit(uint64(rateInBytes), latency, uint32(burstInBytes))
 
-		ifbDeviceName, err := getIfbDeviceName(bwConf.Name, args.ContainerID)
-		if err != nil {
-			return err
-		}
+		ifbDeviceName := getIfbDeviceName(bwConf.Name, args.ContainerID)
 
 		ifbDevice, err := netlink.LinkByName(ifbDeviceName)
 		if err != nil {
