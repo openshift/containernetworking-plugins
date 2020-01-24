@@ -27,7 +27,7 @@ import (
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
-	"github.com/containernetworking/cni/pkg/types/020"
+	types020 "github.com/containernetworking/cni/pkg/types/020"
 	"github.com/containernetworking/cni/pkg/types/current"
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/containernetworking/plugins/pkg/testutils"
@@ -1125,6 +1125,7 @@ var _ = Describe("bridge Operations", func() {
 	AfterEach(func() {
 		Expect(os.RemoveAll(dataDir)).To(Succeed())
 		Expect(originalNS.Close()).To(Succeed())
+		Expect(testutils.UnmountNS(originalNS)).To(Succeed())
 	})
 
 	It("creates a bridge", func() {
@@ -1643,5 +1644,49 @@ var _ = Describe("bridge Operations", func() {
 			return nil
 		})
 		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("check vlan id when loading net conf", func() {
+		tests := []struct {
+			tc  testCase
+			err error
+		}{
+			{
+				tc: testCase{
+					cniVersion: "0.4.0",
+				},
+				err: nil,
+			},
+			{
+				tc: testCase{
+					cniVersion: "0.4.0",
+					vlan:       0,
+				},
+				err: nil,
+			},
+			{
+				tc: testCase{
+					cniVersion: "0.4.0",
+					vlan:       -100,
+				},
+				err: fmt.Errorf("invalid VLAN ID -100 (must be between 0 and 4094)"),
+			},
+			{
+				tc: testCase{
+					cniVersion: "0.4.0",
+					vlan:       5000,
+				},
+				err: fmt.Errorf("invalid VLAN ID 5000 (must be between 0 and 4094)"),
+			},
+		}
+
+		for _, test := range tests {
+			_, _, err := loadNetConf([]byte(test.tc.netConfJSON("")))
+			if test.err == nil {
+				Expect(err).To(BeNil())
+			} else {
+				Expect(err).To(Equal(test.err))
+			}
+		}
 	})
 })

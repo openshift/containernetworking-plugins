@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
-	"os"
 
 	"github.com/Microsoft/hcsshim"
 	"github.com/juju/errors"
@@ -119,7 +118,9 @@ func cmdAdd(args *skel.CmdArgs) error {
 		}
 
 		result.DNS = n.GetDNS()
-
+		if n.LoopbackDSR {
+			n.ApplyLoopbackDSR(&ipAddr)
+		}
 		hnsEndpoint := &hcsshim.HNSEndpoint{
 			Name:           epName,
 			VirtualNetwork: hnsNetwork.Id,
@@ -135,9 +136,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	})
 	defer func() {
 		if !success {
-			os.Setenv("CNI_COMMAND", "DEL")
 			ipam.ExecDel(n.IPAM.Type, args.StdinData)
-			os.Setenv("CNI_COMMAND", "ADD")
 		}
 	}()
 	if err != nil {

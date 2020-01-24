@@ -53,12 +53,30 @@ func loadConf(bytes []byte) (*NetConf, string, error) {
 		return nil, "", fmt.Errorf("failed to load netconf: %v", err)
 	}
 	if n.Master == "" {
-		return nil, "", fmt.Errorf(`"master" field is required. It specifies the host interface name to create the VLAN for.`)
+		return nil, "", fmt.Errorf("\"master\" field is required. It specifies the host interface name to create the VLAN for.")
 	}
 	if n.VlanId < 0 || n.VlanId > 4094 {
-		return nil, "", fmt.Errorf(`invalid VLAN ID %d (must be between 0 and 4095 inclusive)`, n.VlanId)
+		return nil, "", fmt.Errorf("invalid VLAN ID %d (must be between 0 and 4095 inclusive)", n.VlanId)
 	}
+
+	// check existing and MTU of master interface
+	masterMTU, err := getMTUByName(n.Master)
+	if err != nil {
+		return nil, "", err
+	}
+	if n.MTU < 0 || n.MTU > masterMTU {
+		return nil, "", fmt.Errorf("invalid MTU %d, must be [0, master MTU(%d)]", n.MTU, masterMTU)
+	}
+
 	return n, n.CNIVersion, nil
+}
+
+func getMTUByName(ifName string) (int, error) {
+	link, err := netlink.LinkByName(ifName)
+	if err != nil {
+		return 0, err
+	}
+	return link.Attrs().MTU, nil
 }
 
 func createVlan(conf *NetConf, ifName string, netns ns.NetNS) (*current.Interface, error) {
@@ -74,10 +92,6 @@ func createVlan(conf *NetConf, ifName string, netns ns.NetNS) (*current.Interfac
 	tmpName, err := ip.RandomVethName()
 	if err != nil {
 		return nil, err
-	}
-
-	if conf.MTU <= 0 {
-		conf.MTU = m.Attrs().MTU
 	}
 
 	v := &netlink.Vlan{
@@ -193,7 +207,7 @@ func cmdDel(args *skel.CmdArgs) error {
 
 	err = ns.WithNetNSPath(args.Netns, func(_ ns.NetNS) error {
 		err = ip.DelLinkByName(args.IfName)
-		if err != nil && err != ip.ErrLinkNotFound {
+		if err != nil && err == ip.ErrLinkNotFound {
 			return nil
 		}
 		return err

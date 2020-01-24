@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/containernetworking/plugins/pkg/utils"
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/mattn/go-shellwords"
 )
@@ -35,15 +36,10 @@ type chain struct {
 
 // setup idempotently creates the chain. It will not error if the chain exists.
 func (c *chain) setup(ipt *iptables.IPTables) error {
-	// create the chain
-	exists, err := chainExists(ipt, c.table, c.name)
+
+	err := utils.EnsureChain(ipt, c.table, c.name)
 	if err != nil {
 		return err
-	}
-	if !exists {
-		if err := ipt.NewChain(c.table, c.name); err != nil {
-			return err
-		}
 	}
 
 	// Add the rules to the chain
@@ -74,7 +70,7 @@ func (c *chain) teardown(ipt *iptables.IPTables) error {
 	// flush the chain
 	// This will succeed *and create the chain* if it does not exist.
 	// If the chain doesn't exist, the next checks will fail.
-	if err := ipt.ClearChain(c.table, c.name); err != nil {
+	if err := utils.ClearChain(ipt, c.table, c.name); err != nil {
 		return err
 	}
 
@@ -94,17 +90,15 @@ func (c *chain) teardown(ipt *iptables.IPTables) error {
 				}
 				chainParts = chainParts[2:] // List results always include an -A CHAINNAME
 
-				if err := ipt.Delete(c.table, entryChain, chainParts...); err != nil {
-					return fmt.Errorf("Failed to delete referring rule %s %s: %v", c.table, entryChainRule, err)
+				if err := utils.DeleteRule(ipt, c.table, entryChain, chainParts...); err != nil {
+					return err
 				}
+
 			}
 		}
 	}
 
-	if err := ipt.DeleteChain(c.table, c.name); err != nil {
-		return err
-	}
-	return nil
+	return utils.DeleteChain(ipt, c.table, c.name)
 }
 
 // insertUnique will add a rule to a chain if it does not already exist.
@@ -125,24 +119,10 @@ func insertUnique(ipt *iptables.IPTables, table, chain string, prepend bool, rul
 	}
 }
 
-func chainExists(ipt *iptables.IPTables, tableName, chainName string) (bool, error) {
-	chains, err := ipt.ListChains(tableName)
-	if err != nil {
-		return false, err
-	}
-
-	for _, ch := range chains {
-		if ch == chainName {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 // check the chain.
 func (c *chain) check(ipt *iptables.IPTables) error {
 
-	exists, err := chainExists(ipt, c.table, c.name)
+	exists, err := utils.ChainExists(ipt, c.table, c.name)
 	if err != nil {
 		return err
 	}

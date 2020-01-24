@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
-	"os"
 
 	"github.com/Microsoft/hcsshim"
 	"github.com/Microsoft/hcsshim/hcn"
@@ -39,7 +38,6 @@ type NetConf struct {
 	hns.NetConf
 
 	IPMasqNetwork string `json:"ipMasqNetwork,omitempty"`
-	ApiVersion    int    `json:"ApiVersion"`
 }
 
 func init() {
@@ -104,7 +102,7 @@ func cmdHnsAdd(args *skel.CmdArgs, n *NetConf) (*current.Result, error) {
 		return nil, fmt.Errorf("network %v not found", networkName)
 	}
 
-	if !strings.EqualFold(hnsNetwork.Type, "L2Bridge") {
+	if !strings.EqualFold(hnsNetwork.Type, "L2Bridge") && !strings.EqualFold(hnsNetwork.Type, "L2Tunnel") {
 		return nil, fmt.Errorf("network %v is of an unexpected type: %v", networkName, hnsNetwork.Type)
 	}
 
@@ -146,7 +144,7 @@ func cmdHcnAdd(args *skel.CmdArgs, n *NetConf) (*current.Result, error) {
 		return nil, fmt.Errorf("network %v not found", networkName)
 	}
 
-	if  hcnNetwork.Type != hcn.L2Bridge {
+	if hcnNetwork.Type != hcn.L2Bridge && hcnNetwork.Type != hcn.L2Tunnel {
 		return nil, fmt.Errorf("network %v is of unexpected type: %v", networkName, hcnNetwork.Type)
 	}
 
@@ -191,13 +189,11 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 
 	if err != nil {
-		os.Setenv("CNI_COMMAND", "DEL")
 		ipam.ExecDel(n.IPAM.Type, args.StdinData)
-		os.Setenv("CNI_COMMAND", "ADD")
 		return errors.Annotate(err, "error while executing ADD command")
 	}
 
-	if (result == nil) {
+	if result == nil {
 		return errors.New("result for ADD not populated correctly")
 	}
 	return types.PrintResult(result, cniVersion)
