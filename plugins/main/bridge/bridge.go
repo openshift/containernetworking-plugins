@@ -35,6 +35,7 @@ import (
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/containernetworking/plugins/pkg/utils"
 	bv "github.com/containernetworking/plugins/pkg/utils/buildversion"
+	"github.com/containernetworking/plugins/pkg/utils/sysctl"
 )
 
 // For testcases to force an error after IPAM has been performed
@@ -246,6 +247,9 @@ func ensureBridge(brName string, mtu int, promiscMode, vlanFiltering bool) (*net
 	if err != nil {
 		return nil, err
 	}
+
+	// we want to own the routes for this interface
+	_, _ = sysctl.Sysctl(fmt.Sprintf("net/ipv6/conf/%s/accept_ra", brName), "0")
 
 	if err := netlink.LinkSetUp(br); err != nil {
 		return nil, err
