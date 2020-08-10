@@ -11,6 +11,7 @@ trap "{ rm -rf $GOPATH; }" EXIT
 ln -s ${PWD} ${GOPATH}/src/${REPO_PATH} || exit 255
 
 export GO="${GO:-go}"
+export GOARCH=amd64
 export GOOS=windows
 export GOFLAGS="${GOFLAGS} -mod=vendor"
 echo $GOFLAGS
