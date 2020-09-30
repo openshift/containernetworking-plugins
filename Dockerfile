@@ -7,7 +7,7 @@ RUN ./build_linux.sh && \
     cd /usr/src/plugins/bin
 WORKDIR /
 
-FROM registry.svc.ci.openshift.org/ocp/builder:rhel-7-golang-openshift-4.6 as rhel7
+FROM registry.svc.ci.openshift.org/ocp/builder:rhel-7-golang-1.15-openshift-4.6 AS rhel7
 ADD . /usr/src/plugins
 WORKDIR /usr/src/plugins
 ENV CGO_ENABLED=0
