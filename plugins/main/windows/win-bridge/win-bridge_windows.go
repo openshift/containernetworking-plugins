@@ -22,13 +22,13 @@ import (
 
 	"github.com/Microsoft/hcsshim"
 	"github.com/Microsoft/hcsshim/hcn"
-	"github.com/juju/errors"
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
 	"github.com/containernetworking/cni/pkg/types/current"
 	"github.com/containernetworking/cni/pkg/version"
 
+	"github.com/containernetworking/plugins/pkg/errors"
 	"github.com/containernetworking/plugins/pkg/hns"
 	"github.com/containernetworking/plugins/pkg/ipam"
 	bv "github.com/containernetworking/plugins/pkg/utils/buildversion"
@@ -72,7 +72,7 @@ func ProcessEndpointArgs(args *skel.CmdArgs, n *NetConf) (*hns.EndpointInfo, err
 			return nil, errors.Annotatef(err, "error while NewResultFromResult")
 		} else {
 			if len(result.IPs) == 0 {
-				return nil, errors.New("IPAM plugin return is missing IP config")
+				return nil, fmt.Errorf("IPAM plugin return is missing IP config")
 			}
 			epInfo.IpAddress = result.IPs[0].Address.IP
 			epInfo.Gateway = result.IPs[0].Address.IP.Mask(result.IPs[0].Address.Mask)
@@ -85,6 +85,9 @@ func ProcessEndpointArgs(args *skel.CmdArgs, n *NetConf) (*hns.EndpointInfo, err
 	if len(n.IPMasqNetwork) != 0 {
 		n.ApplyOutboundNatPolicy(n.IPMasqNetwork)
 	}
+
+	// Add HostPort mapping if any present
+	n.ApplyPortMappingPolicy(n.RuntimeConfig.PortMaps)
 
 	epInfo.DNS = n.GetDNS()
 
@@ -107,7 +110,6 @@ func cmdHnsAdd(args *skel.CmdArgs, n *NetConf) (*current.Result, error) {
 	}
 
 	epName := hns.ConstructEndpointName(args.ContainerID, args.Netns, n.Name)
-
 	hnsEndpoint, err := hns.ProvisionEndpoint(epName, hnsNetwork.Id, args.ContainerID, args.Netns, func() (*hcsshim.HNSEndpoint, error) {
 		epInfo, err := ProcessEndpointArgs(args, n)
 		epInfo.NetworkId = hnsNetwork.Id
@@ -130,7 +132,6 @@ func cmdHnsAdd(args *skel.CmdArgs, n *NetConf) (*current.Result, error) {
 	}
 
 	return result, nil
-
 }
 
 func cmdHcnAdd(args *skel.CmdArgs, n *NetConf) (*current.Result, error) {
@@ -194,7 +195,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 
 	if result == nil {
-		return errors.New("result for ADD not populated correctly")
+		return fmt.Errorf("result for ADD not populated correctly")
 	}
 	return types.PrintResult(result, cniVersion)
 }
