@@ -28,7 +28,7 @@ The following network configuration file
         }
       },
       {
-        "type": "firewall",
+        "type": "firewall"
       }
     ]
 }
@@ -72,7 +72,7 @@ look like:
       },
       {
         "type": "firewall",
-	"backend": "firewalld"
+        "backend": "firewalld"
       }
     ]
 }
@@ -111,7 +111,7 @@ look like:
       },
       {
         "type": "firewall",
-	"backend": "iptables"
+        "backend": "iptables"
       }
     ]
 }
@@ -129,7 +129,21 @@ when containers are created and from where rules will be removed when containers
 CNI-FORWARD will have a pair of rules added, one for each direction, using the IPAM assigned IP address
 of the container as shown:
 
-`CNI_FORWARD` chain:
-- `-s 10.88.0.2 -m conntrack --ctstate RELATED,ESTABLISHED -j CNI-FORWARD`
-- `-d 10.88.0.2 -j CNI-FORWARD`
+`CNI-FORWARD` chain:
+- `-s 10.88.0.2 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT`
+- `-d 10.88.0.2 -j ACCEPT`
 
+The `CNI-FORWARD` chain first sends all traffic to `CNI-ADMIN` chain, which is intended as an user-controlled chain for custom rules that run prior to rules managed by the `firewall` plugin. The `firewall` plugin does not add, delete or modify rules in the `CNI-ADMIN` chain.
+
+`CNI-FORWARD` chain:
+- `-j CNI-ADMIN`
+
+The chain name `CNI-ADMIN` can be overridden by specifying `iptablesAdminChainName` in the plugin configuration
+
+```
+      {
+        "type": "firewall",
+	"backend": "iptables",
+	"iptablesAdminChainName": "SOME-OTHER-CHAIN-NAME",
+      }
+```
