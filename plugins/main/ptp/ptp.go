@@ -27,7 +27,7 @@ import (
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
-	"github.com/containernetworking/cni/pkg/types/current"
+	current "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/containernetworking/cni/pkg/version"
 
 	"github.com/containernetworking/plugins/pkg/ip"
@@ -66,7 +66,7 @@ func setupContainerVeth(netns ns.NetNS, ifName string, mtu int, pr *current.Resu
 	containerInterface := &current.Interface{}
 
 	err := netns.Do(func(hostNS ns.NetNS) error {
-		hostVeth, contVeth0, err := ip.SetupVeth(ifName, mtu, hostNS)
+		hostVeth, contVeth0, err := ip.SetupVeth(ifName, mtu, "", hostNS)
 		if err != nil {
 			return err
 		}
@@ -108,7 +108,7 @@ func setupContainerVeth(netns ns.NetNS, ifName string, mtu int, pr *current.Resu
 			}
 
 			addrBits := 32
-			if ipc.Version == "6" {
+			if ipc.Address.IP.To4() == nil {
 				addrBits = 128
 			}
 
@@ -141,7 +141,7 @@ func setupContainerVeth(netns ns.NetNS, ifName string, mtu int, pr *current.Resu
 
 		// Send a gratuitous arp for all v4 addresses
 		for _, ipc := range pr.IPs {
-			if ipc.Version == "4" {
+			if ipc.Address.IP.To4() != nil {
 				_ = arping.GratuitousArpOverIface(ipc.Address.IP, *contVeth)
 			}
 		}

@@ -53,6 +53,23 @@ func BufferWithBytes(bytes []byte) *Buffer {
 }
 
 /*
+BufferReader returns a new gbytes.Buffer that wraps a reader.  The reader's contents are read into
+the Buffer via io.Copy
+*/
+func BufferReader(reader io.Reader) *Buffer {
+	b := &Buffer{
+		lock: &sync.Mutex{},
+	}
+
+	go func() {
+		io.Copy(b, reader)
+		b.Close()
+	}()
+
+	return b
+}
+
+/*
 Write implements the io.Writer interface
 */
 func (b *Buffer) Write(p []byte) (n int, err error) {
@@ -89,6 +106,22 @@ func (b *Buffer) Read(d []byte) (int, error) {
 	b.readCursor += uint64(n)
 
 	return n, nil
+}
+
+/*
+Clear clears out the buffer's contents
+*/
+func (b *Buffer) Clear() error {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
+	if b.closed {
+		return errors.New("attempt to clear closed buffer")
+	}
+
+	b.contents = []byte{}
+	b.readCursor = 0
+	return nil
 }
 
 /*
@@ -223,7 +256,6 @@ func (b *Buffer) didSay(re *regexp.Regexp) (bool, []byte) {
 	if loc != nil {
 		b.readCursor += uint64(loc[1])
 		return true, copyOfUnreadBytes
-	} else {
-		return false, copyOfUnreadBytes
 	}
+	return false, copyOfUnreadBytes
 }

@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/containernetworking/cni/pkg/types/current"
-	"github.com/godbus/dbus"
+	current "github.com/containernetworking/cni/pkg/types/100"
+	"github.com/godbus/dbus/v5"
 )
 
 const (
