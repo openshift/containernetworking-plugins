@@ -19,6 +19,7 @@ FROM registry.ci.openshift.org/ocp/builder:rhel-8-golang-1.16-openshift-4.9 AS w
 ADD . /usr/src/plugins
 WORKDIR /usr/src/plugins
 ENV CGO_ENABLED=0
+RUN yum install -y dos2unix
 RUN ./build_windows.sh && \
     cd /usr/src/plugins/bin
 WORKDIR /
