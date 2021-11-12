@@ -21,7 +21,8 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/containernetworking/cni/pkg/types/current"
+	current "github.com/containernetworking/cni/pkg/types/100"
+
 	"github.com/containernetworking/plugins/pkg/ip"
 	"github.com/containernetworking/plugins/plugins/ipam/host-local/backend"
 )
@@ -108,13 +109,8 @@ func (a *IPAllocator) Get(id string, ifname string, requestedIP net.IP) (*curren
 	if reservedIP == nil {
 		return nil, fmt.Errorf("no IP addresses available in range set: %s", a.rangeset.String())
 	}
-	version := "4"
-	if reservedIP.IP.To4() == nil {
-		version = "6"
-	}
 
 	return &current.IPConfig{
-		Version: version,
 		Address: *reservedIP,
 		Gateway: gw,
 	}, nil
@@ -137,9 +133,8 @@ type RangeIter struct {
 	// Our current position
 	cur net.IP
 
-	// The IP and range index where we started iterating; if we hit this again, we're done.
-	startIP    net.IP
-	startRange int
+	// The IP where we started iterating; if we hit this again, we're done.
+	startIP net.IP
 }
 
 // GetIter encapsulates the strategy for this allocator.
@@ -169,7 +164,6 @@ func (a *IPAllocator) GetIter() (*RangeIter, error) {
 		for i, r := range *a.rangeset {
 			if r.Contains(lastReservedIP) {
 				iter.rangeIdx = i
-				iter.startRange = i
 
 				// We advance the cursor on every Next(), so the first call
 				// to next() will return lastReservedIP + 1
@@ -179,7 +173,6 @@ func (a *IPAllocator) GetIter() (*RangeIter, error) {
 		}
 	} else {
 		iter.rangeIdx = 0
-		iter.startRange = 0
 		iter.startIP = (*a.rangeset)[0].RangeStart
 	}
 	return &iter, nil
@@ -215,7 +208,7 @@ func (i *RangeIter) Next() (*net.IPNet, net.IP) {
 
 	if i.startIP == nil {
 		i.startIP = i.cur
-	} else if i.rangeIdx == i.startRange && i.cur.Equal(i.startIP) {
+	} else if i.cur.Equal(i.startIP) {
 		// IF we've looped back to where we started, give up
 		return nil, nil
 	}

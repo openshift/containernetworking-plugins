@@ -24,7 +24,7 @@ import (
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
-	"github.com/containernetworking/cni/pkg/types/current"
+	current "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/containernetworking/cni/pkg/version"
 
 	"github.com/containernetworking/plugins/pkg/errors"
@@ -86,7 +86,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 	epName := hns.ConstructEndpointName(args.ContainerID, args.Netns, n.Name)
 
-	hnsEndpoint, err := hns.ProvisionEndpoint(epName, hnsNetwork.Id, args.ContainerID, args.Netns, func() (*hcsshim.HNSEndpoint, error) {
+	hnsEndpoint, err := hns.AddHnsEndpoint(epName, hnsNetwork.Id, args.ContainerID, args.Netns, func() (*hcsshim.HNSEndpoint, error) {
 		// run the IPAM plugin and get back the config to apply
 		r, err := ipam.ExecAdd(n.IPAM.Type, args.StdinData)
 		if err != nil {
@@ -119,7 +119,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 		result.DNS = n.GetDNS()
 		if n.LoopbackDSR {
-			n.ApplyLoopbackDSR(&ipAddr)
+			n.ApplyLoopbackDSRPolicy(&ipAddr)
 		}
 		hnsEndpoint := &hcsshim.HNSEndpoint{
 			Name:           epName,
@@ -129,7 +129,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 			GatewayAddress: gw,
 			IPAddress:      ipAddr,
 			MacAddress:     macAddr,
-			Policies:       n.MarshalPolicies(),
+			Policies:       n.GetHNSEndpointPolicies(),
 		}
 
 		return hnsEndpoint, nil
@@ -140,10 +140,10 @@ func cmdAdd(args *skel.CmdArgs) error {
 		}
 	}()
 	if err != nil {
-		return errors.Annotatef(err, "error while ProvisionEndpoint(%v,%v,%v)", epName, hnsNetwork.Id, args.ContainerID)
+		return errors.Annotatef(err, "error while AddHnsEndpoint(%v,%v,%v)", epName, hnsNetwork.Id, args.ContainerID)
 	}
 
-	result, err := hns.ConstructResult(hnsNetwork, hnsEndpoint)
+	result, err := hns.ConstructHnsResult(hnsNetwork, hnsEndpoint)
 	if err != nil {
 		return errors.Annotatef(err, "error while constructResult")
 	}
@@ -164,7 +164,7 @@ func cmdDel(args *skel.CmdArgs) error {
 
 	epName := hns.ConstructEndpointName(args.ContainerID, args.Netns, n.Name)
 
-	return hns.DeprovisionEndpoint(epName, args.Netns, args.ContainerID)
+	return hns.RemoveHnsEndpoint(epName, args.Netns, args.ContainerID)
 }
 
 func cmdCheck(_ *skel.CmdArgs) error {
@@ -173,5 +173,5 @@ func cmdCheck(_ *skel.CmdArgs) error {
 }
 
 func main() {
-	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.PluginSupports("0.1.0", "0.2.0", "0.3.0"), bv.BuildString("win-overlay"))
+	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.All, bv.BuildString("win-overlay"))
 }

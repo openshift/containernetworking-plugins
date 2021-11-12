@@ -22,8 +22,7 @@ import (
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
-	types020 "github.com/containernetworking/cni/pkg/types/020"
-	"github.com/containernetworking/cni/pkg/types/current"
+	current "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/containernetworking/cni/pkg/version"
 	bv "github.com/containernetworking/plugins/pkg/utils/buildversion"
 )
@@ -144,6 +143,9 @@ func LoadIPAMConfig(bytes []byte, envArgs string) (*IPAMConfig, string, error) {
 	if err := json.Unmarshal(bytes, &n); err != nil {
 		return nil, "", err
 	}
+	if n.IPAM == nil {
+		return nil, "", fmt.Errorf("IPAM config missing 'ipam' key")
+	}
 
 	// load IP from CNI_ARGS
 	if envArgs != "" {
@@ -159,7 +161,7 @@ func LoadIPAMConfig(bytes []byte, envArgs string) (*IPAMConfig, string, error) {
 
 				ip, subnet, err := net.ParseCIDR(ipstr)
 				if err != nil {
-					return nil, "", fmt.Errorf("invalid CIDR %s: %s", ipstr, err)
+					return nil, "", fmt.Errorf("the 'ip' field is expected to be in CIDR notation, got: '%s'", ipstr)
 				}
 
 				addr := Address{
@@ -190,8 +192,13 @@ func LoadIPAMConfig(bytes []byte, envArgs string) (*IPAMConfig, string, error) {
 	if n.Args != nil && n.Args.A != nil && len(n.Args.A.IPs) != 0 {
 		// args IP overwrites IP, so clear IPAM Config
 		n.IPAM.Addresses = make([]Address, 0, len(n.Args.A.IPs))
-		for _, addr := range n.Args.A.IPs {
-			n.IPAM.Addresses = append(n.IPAM.Addresses, Address{AddressStr: addr})
+		for _, addrStr := range n.Args.A.IPs {
+			ip, addr, err := net.ParseCIDR(addrStr)
+			if err != nil {
+				return nil, "", fmt.Errorf("an entry in the 'ips' field is NOT in CIDR notation, got: '%s'", addrStr)
+			}
+			addr.IP = ip
+			n.IPAM.Addresses = append(n.IPAM.Addresses, Address{AddressStr: addrStr, Address: *addr})
 		}
 	}
 
@@ -199,13 +206,14 @@ func LoadIPAMConfig(bytes []byte, envArgs string) (*IPAMConfig, string, error) {
 	if len(n.RuntimeConfig.IPs) != 0 {
 		// runtimeConfig IP overwrites IP, so clear IPAM Config
 		n.IPAM.Addresses = make([]Address, 0, len(n.RuntimeConfig.IPs))
-		for _, addr := range n.RuntimeConfig.IPs {
-			n.IPAM.Addresses = append(n.IPAM.Addresses, Address{AddressStr: addr})
+		for _, addrStr := range n.RuntimeConfig.IPs {
+			ip, addr, err := net.ParseCIDR(addrStr)
+			if err != nil {
+				return nil, "", fmt.Errorf("an entry in the 'ips' field is NOT in CIDR notation, got: '%s'", addrStr)
+			}
+			addr.IP = ip
+			n.IPAM.Addresses = append(n.IPAM.Addresses, Address{AddressStr: addrStr, Address: *addr})
 		}
-	}
-
-	if n.IPAM == nil {
-		return nil, "", fmt.Errorf("IPAM config missing 'ipam' key")
 	}
 
 	// Validate all ranges
@@ -213,32 +221,31 @@ func LoadIPAMConfig(bytes []byte, envArgs string) (*IPAMConfig, string, error) {
 	numV6 := 0
 
 	for i := range n.IPAM.Addresses {
-		ip, addr, err := net.ParseCIDR(n.IPAM.Addresses[i].AddressStr)
-		if err != nil {
-			return nil, "", fmt.Errorf("invalid CIDR %s: %s", n.IPAM.Addresses[i].AddressStr, err)
+		if n.IPAM.Addresses[i].Address.IP == nil {
+			ip, addr, err := net.ParseCIDR(n.IPAM.Addresses[i].AddressStr)
+			if err != nil {
+				return nil, "", fmt.Errorf(
+					"the 'address' field is expected to be in CIDR notation, got: '%s'", n.IPAM.Addresses[i].AddressStr)
+			}
+			n.IPAM.Addresses[i].Address = *addr
+			n.IPAM.Addresses[i].Address.IP = ip
 		}
-		n.IPAM.Addresses[i].Address = *addr
-		n.IPAM.Addresses[i].Address.IP = ip
 
 		if err := canonicalizeIP(&n.IPAM.Addresses[i].Address.IP); err != nil {
 			return nil, "", fmt.Errorf("invalid address %d: %s", i, err)
 		}
 
 		if n.IPAM.Addresses[i].Address.IP.To4() != nil {
-			n.IPAM.Addresses[i].Version = "4"
 			numV4++
 		} else {
-			n.IPAM.Addresses[i].Version = "6"
 			numV6++
 		}
 	}
 
 	// CNI spec 0.2.0 and below supported only one v4 and v6 address
 	if numV4 > 1 || numV6 > 1 {
-		for _, v := range types020.SupportedVersions {
-			if n.CNIVersion == v {
-				return nil, "", fmt.Errorf("CNI version %v does not support more than 1 address per family", n.CNIVersion)
-			}
+		if ok, _ := version.GreaterThanOrEqualTo(n.CNIVersion, "0.3.0"); !ok {
+			return nil, "", fmt.Errorf("CNI version %v does not support more than 1 address per family", n.CNIVersion)
 		}
 	}
 
@@ -254,14 +261,16 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return err
 	}
 
-	result := &current.Result{}
-	result.DNS = ipamConf.DNS
-	result.Routes = ipamConf.Routes
+	result := &current.Result{
+		CNIVersion: current.ImplementedSpecVersion,
+		DNS:        ipamConf.DNS,
+		Routes:     ipamConf.Routes,
+	}
 	for _, v := range ipamConf.Addresses {
 		result.IPs = append(result.IPs, &current.IPConfig{
-			Version: v.Version,
 			Address: v.Address,
-			Gateway: v.Gateway})
+			Gateway: v.Gateway,
+		})
 	}
 
 	return types.PrintResult(result, confVersion)

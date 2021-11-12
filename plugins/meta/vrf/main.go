@@ -22,7 +22,7 @@ import (
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
-	"github.com/containernetworking/cni/pkg/types/current"
+	current "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/containernetworking/cni/pkg/version"
 
 	"github.com/containernetworking/plugins/pkg/ns"
@@ -40,7 +40,7 @@ type VRFNetConf struct {
 }
 
 func main() {
-	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.PluginSupports("0.3.1", "0.4.0"), bv.BuildString("vrf"))
+	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.VersionsStartingFrom("0.3.1"), bv.BuildString("vrf"))
 }
 
 func cmdAdd(args *skel.CmdArgs) error {

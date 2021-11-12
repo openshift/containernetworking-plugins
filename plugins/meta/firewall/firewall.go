@@ -24,7 +24,7 @@ import (
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
-	"github.com/containernetworking/cni/pkg/types/current"
+	current "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/containernetworking/cni/pkg/version"
 
 	bv "github.com/containernetworking/plugins/pkg/utils/buildversion"
@@ -130,7 +130,9 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 
 	if result == nil {
-		result = &current.Result{}
+		result = &current.Result{
+			CNIVersion: current.ImplementedSpecVersion,
+		}
 	}
 	return types.PrintResult(result, conf.CNIVersion)
 }
@@ -155,7 +157,7 @@ func cmdDel(args *skel.CmdArgs) error {
 }
 
 func main() {
-	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.PluginSupports("0.4.0"), bv.BuildString("firewall"))
+	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.VersionsStartingFrom("0.4.0"), bv.BuildString("firewall"))
 }
 
 func cmdCheck(args *skel.CmdArgs) error {

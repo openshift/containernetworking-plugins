@@ -26,18 +26,13 @@ import (
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
-	"github.com/containernetworking/cni/pkg/types/current"
+	current "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/containernetworking/cni/pkg/version"
 
 	"github.com/containernetworking/plugins/pkg/ip"
 	"github.com/containernetworking/plugins/pkg/ipam"
 	"github.com/containernetworking/plugins/pkg/ns"
 	bv "github.com/containernetworking/plugins/pkg/utils/buildversion"
-	"github.com/containernetworking/plugins/pkg/utils/sysctl"
-)
-
-const (
-	IPv4InterfaceArpProxySysctlTemplate = "net.ipv4.conf.%s.proxy_arp"
 )
 
 type NetConf struct {
@@ -208,14 +203,6 @@ func createMacvlan(conf *NetConf, ifName string, netns ns.NetNS) (*current.Inter
 	}
 
 	err = netns.Do(func(_ ns.NetNS) error {
-		// TODO: duplicate following lines for ipv6 support, when it will be added in other places
-		ipv4SysctlValueName := fmt.Sprintf(IPv4InterfaceArpProxySysctlTemplate, tmpName)
-		if _, err := sysctl.Sysctl(ipv4SysctlValueName, "1"); err != nil {
-			// remove the newly added link and ignore errors, because we already are in a failed state
-			_ = netlink.LinkDel(mv)
-			return fmt.Errorf("failed to set proxy_arp on newly added interface %q: %v", tmpName, err)
-		}
-
 		err := ip.RenameLink(tmpName, ifName)
 		if err != nil {
 			_ = netlink.LinkDel(mv)
@@ -269,7 +256,10 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}()
 
 	// Assume L2 interface only
-	result := &current.Result{CNIVersion: cniVersion, Interfaces: []*current.Interface{macvlanInterface}}
+	result := &current.Result{
+		CNIVersion: current.ImplementedSpecVersion,
+		Interfaces: []*current.Interface{macvlanInterface},
+	}
 
 	if isLayer3 {
 		// run the IPAM plugin and get back the config to apply
@@ -314,7 +304,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 			}
 
 			for _, ipc := range result.IPs {
-				if ipc.Version == "4" {
+				if ipc.Address.IP.To4() != nil {
 					_ = arping.GratuitousArpOverIface(ipc.Address.IP, *contVeth)
 				}
 			}

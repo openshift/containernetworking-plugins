@@ -56,6 +56,9 @@ type DHCPLease struct {
 	renewalTime   time.Time
 	rebindingTime time.Time
 	expireTime    time.Time
+	timeout       time.Duration
+	resendMax     time.Duration
+	broadcast     bool
 	stopping      uint32
 	stop          chan struct{}
 	wg            sync.WaitGroup
@@ -64,11 +67,17 @@ type DHCPLease struct {
 // AcquireLease gets an DHCP lease and then maintains it in the background
 // by periodically renewing it. The acquired lease can be released by
 // calling DHCPLease.Stop()
-func AcquireLease(clientID, netns, ifName string) (*DHCPLease, error) {
+func AcquireLease(
+	clientID, netns, ifName string,
+	timeout, resendMax time.Duration, broadcast bool,
+) (*DHCPLease, error) {
 	errCh := make(chan error, 1)
 	l := &DHCPLease{
-		clientID: clientID,
-		stop:     make(chan struct{}),
+		clientID:  clientID,
+		stop:      make(chan struct{}),
+		timeout:   timeout,
+		resendMax: resendMax,
+		broadcast: broadcast,
 	}
 
 	log.Printf("%v: acquiring lease", clientID)
@@ -115,7 +124,7 @@ func (l *DHCPLease) Stop() {
 }
 
 func (l *DHCPLease) acquire() error {
-	c, err := newDHCPClient(l.link, l.clientID)
+	c, err := newDHCPClient(l.link, l.clientID, l.timeout, l.broadcast)
 	if err != nil {
 		return err
 	}
@@ -132,7 +141,7 @@ func (l *DHCPLease) acquire() error {
 	opts[dhcp4.OptionClientIdentifier] = []byte(l.clientID)
 	opts[dhcp4.OptionParameterRequestList] = []byte{byte(dhcp4.OptionRouter), byte(dhcp4.OptionSubnetMask)}
 
-	pkt, err := backoffRetry(func() (*dhcp4.Packet, error) {
+	pkt, err := backoffRetry(l.resendMax, func() (*dhcp4.Packet, error) {
 		ok, ack, err := DhcpRequest(c, opts)
 		switch {
 		case err != nil:
@@ -242,7 +251,7 @@ func (l *DHCPLease) downIface() {
 }
 
 func (l *DHCPLease) renew() error {
-	c, err := newDHCPClient(l.link, l.clientID)
+	c, err := newDHCPClient(l.link, l.clientID, l.timeout, l.broadcast)
 	if err != nil {
 		return err
 	}
@@ -251,7 +260,7 @@ func (l *DHCPLease) renew() error {
 	opts := make(dhcp4.Options)
 	opts[dhcp4.OptionClientIdentifier] = []byte(l.clientID)
 
-	pkt, err := backoffRetry(func() (*dhcp4.Packet, error) {
+	pkt, err := backoffRetry(l.resendMax, func() (*dhcp4.Packet, error) {
 		ok, ack, err := DhcpRenew(c, *l.ack, opts)
 		switch {
 		case err != nil:
@@ -273,7 +282,7 @@ func (l *DHCPLease) renew() error {
 func (l *DHCPLease) release() error {
 	log.Printf("%v: releasing lease", l.clientID)
 
-	c, err := newDHCPClient(l.link, l.clientID)
+	c, err := newDHCPClient(l.link, l.clientID, l.timeout, l.broadcast)
 	if err != nil {
 		return err
 	}
@@ -333,7 +342,7 @@ func jitter(span time.Duration) time.Duration {
 	return time.Duration(float64(span) * (2.0*rand.Float64() - 1.0))
 }
 
-func backoffRetry(f func() (*dhcp4.Packet, error)) (*dhcp4.Packet, error) {
+func backoffRetry(resendMax time.Duration, f func() (*dhcp4.Packet, error)) (*dhcp4.Packet, error) {
 	var baseDelay time.Duration = resendDelay0
 	var sleepTime time.Duration
 
@@ -351,7 +360,7 @@ func backoffRetry(f func() (*dhcp4.Packet, error)) (*dhcp4.Packet, error) {
 
 		time.Sleep(sleepTime)
 
-		if baseDelay < resendDelayMax {
+		if baseDelay < resendMax {
 			baseDelay *= 2
 		} else {
 			break
@@ -361,7 +370,11 @@ func backoffRetry(f func() (*dhcp4.Packet, error)) (*dhcp4.Packet, error) {
 	return nil, errNoMoreTries
 }
 
-func newDHCPClient(link netlink.Link, clientID string) (*dhcp4client.Client, error) {
+func newDHCPClient(
+	link netlink.Link, clientID string,
+	timeout time.Duration,
+	broadcast bool,
+) (*dhcp4client.Client, error) {
 	pktsock, err := dhcp4client.NewPacketSock(link.Attrs().Index)
 	if err != nil {
 		return nil, err
@@ -369,8 +382,8 @@ func newDHCPClient(link netlink.Link, clientID string) (*dhcp4client.Client, err
 
 	return dhcp4client.New(
 		dhcp4client.HardwareAddr(link.Attrs().HardwareAddr),
-		dhcp4client.Timeout(5*time.Second),
-		dhcp4client.Broadcast(false),
+		dhcp4client.Timeout(timeout),
+		dhcp4client.Broadcast(broadcast),
 		dhcp4client.Connection(pktsock),
 	)
 }

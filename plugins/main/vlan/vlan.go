@@ -24,7 +24,7 @@ import (
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
-	"github.com/containernetworking/cni/pkg/types/current"
+	current "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/containernetworking/cni/pkg/version"
 
 	"github.com/containernetworking/plugins/pkg/ip"
@@ -152,7 +152,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	// run the IPAM plugin and get back the config to apply
 	r, err := ipam.ExecAdd(n.IPAM.Type, args.StdinData)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to execute IPAM delegate: %v", err)
 	}
 
 	// Invoke ipam del if err to avoid ip leak
@@ -238,7 +238,7 @@ func cmdCheck(args *skel.CmdArgs) error {
 		return err
 	}
 	if conf.NetConf.RawPrevResult == nil {
-		return fmt.Errorf("ptp: Required prevResult missing")
+		return fmt.Errorf("vlan: Required prevResult missing")
 	}
 	if err := version.ParsePrevResult(&conf.NetConf); err != nil {
 		return err
@@ -308,10 +308,10 @@ func validateCniContainerInterface(intf current.Interface, masterIndex int, vlan
 	}
 	link, err = netlink.LinkByName(intf.Name)
 	if err != nil {
-		return fmt.Errorf("ptp: Container Interface name in prevResult: %s not found", intf.Name)
+		return fmt.Errorf("vlan: Container Interface name in prevResult: %s not found", intf.Name)
 	}
 	if intf.Sandbox == "" {
-		return fmt.Errorf("ptp: Error: Container interface %s should not be in host namespace", link.Attrs().Name)
+		return fmt.Errorf("vlan: Error: Container interface %s should not be in host namespace", link.Attrs().Name)
 	}
 
 	vlan, isVlan := link.(*netlink.Vlan)

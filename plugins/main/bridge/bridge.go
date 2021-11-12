@@ -29,7 +29,7 @@ import (
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
-	"github.com/containernetworking/cni/pkg/types/current"
+	current "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/containernetworking/cni/pkg/version"
 	"github.com/containernetworking/plugins/pkg/ip"
 	"github.com/containernetworking/plugins/pkg/ipam"
@@ -55,6 +55,25 @@ type NetConf struct {
 	HairpinMode  bool   `json:"hairpinMode"`
 	PromiscMode  bool   `json:"promiscMode"`
 	Vlan         int    `json:"vlan"`
+
+	Args struct {
+		Cni BridgeArgs `json:"cni,omitempty"`
+	} `json:"args,omitempty"`
+	RuntimeConfig struct {
+		Mac string `json:"mac,omitempty"`
+	} `json:"runtimeConfig,omitempty"`
+
+	mac string
+}
+
+type BridgeArgs struct {
+	Mac string `json:"mac,omitempty"`
+}
+
+// MacEnvArgs represents CNI_ARGS
+type MacEnvArgs struct {
+	types.CommonArgs
+	MAC types.UnmarshallableString `json:"mac,omitempty"`
 }
 
 type gwInfo struct {
@@ -70,7 +89,7 @@ func init() {
 	runtime.LockOSThread()
 }
 
-func loadNetConf(bytes []byte) (*NetConf, string, error) {
+func loadNetConf(bytes []byte, envArgs string) (*NetConf, string, error) {
 	n := &NetConf{
 		BrName: defaultBrName,
 	}
@@ -80,6 +99,26 @@ func loadNetConf(bytes []byte) (*NetConf, string, error) {
 	if n.Vlan < 0 || n.Vlan > 4094 {
 		return nil, "", fmt.Errorf("invalid VLAN ID %d (must be between 0 and 4094)", n.Vlan)
 	}
+
+	if envArgs != "" {
+		e := MacEnvArgs{}
+		if err := types.LoadArgs(envArgs, &e); err != nil {
+			return nil, "", err
+		}
+
+		if e.MAC != "" {
+			n.mac = string(e.MAC)
+		}
+	}
+
+	if mac := n.Args.Cni.Mac; mac != "" {
+		n.mac = mac
+	}
+
+	if mac := n.RuntimeConfig.Mac; mac != "" {
+		n.mac = mac
+	}
+
 	return n, n.CNIVersion, nil
 }
 
@@ -273,7 +312,7 @@ func ensureVlanInterface(br *netlink.Bridge, vlanId int) (netlink.Link, error) {
 			return nil, fmt.Errorf("faild to find host namespace: %v", err)
 		}
 
-		_, brGatewayIface, err := setupVeth(hostNS, br, name, br.MTU, false, vlanId)
+		_, brGatewayIface, err := setupVeth(hostNS, br, name, br.MTU, false, vlanId, "")
 		if err != nil {
 			return nil, fmt.Errorf("faild to create vlan gateway %q: %v", name, err)
 		}
@@ -287,13 +326,13 @@ func ensureVlanInterface(br *netlink.Bridge, vlanId int) (netlink.Link, error) {
 	return brGatewayVeth, nil
 }
 
-func setupVeth(netns ns.NetNS, br *netlink.Bridge, ifName string, mtu int, hairpinMode bool, vlanID int) (*current.Interface, *current.Interface, error) {
+func setupVeth(netns ns.NetNS, br *netlink.Bridge, ifName string, mtu int, hairpinMode bool, vlanID int, mac string) (*current.Interface, *current.Interface, error) {
 	contIface := &current.Interface{}
 	hostIface := &current.Interface{}
 
 	err := netns.Do(func(hostNS ns.NetNS) error {
 		// create the veth pair in the container and move host end into host netns
-		hostVeth, containerVeth, err := ip.SetupVeth(ifName, mtu, hostNS)
+		hostVeth, containerVeth, err := ip.SetupVeth(ifName, mtu, mac, hostNS)
 		if err != nil {
 			return err
 		}
@@ -380,7 +419,7 @@ func enableIPForward(family int) error {
 func cmdAdd(args *skel.CmdArgs) error {
 	var success bool = false
 
-	n, cniVersion, err := loadNetConf(args.StdinData)
+	n, cniVersion, err := loadNetConf(args.StdinData, args.Args)
 	if err != nil {
 		return err
 	}
@@ -392,7 +431,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 
 	if n.HairpinMode && n.PromiscMode {
-		return fmt.Errorf("cannot set hairpin mode and promiscous mode at the same time.")
+		return fmt.Errorf("cannot set hairpin mode and promiscuous mode at the same time.")
 	}
 
 	br, brInterface, err := setupBridge(n)
@@ -406,13 +445,20 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 	defer netns.Close()
 
-	hostInterface, containerInterface, err := setupVeth(netns, br, args.IfName, n.MTU, n.HairpinMode, n.Vlan)
+	hostInterface, containerInterface, err := setupVeth(netns, br, args.IfName, n.MTU, n.HairpinMode, n.Vlan, n.mac)
 	if err != nil {
 		return err
 	}
 
 	// Assume L2 interface only
-	result := &current.Result{CNIVersion: cniVersion, Interfaces: []*current.Interface{brInterface, hostInterface, containerInterface}}
+	result := &current.Result{
+		CNIVersion: current.ImplementedSpecVersion,
+		Interfaces: []*current.Interface{
+			brInterface,
+			hostInterface,
+			containerInterface,
+		},
+	}
 
 	if isLayer3 {
 		// run the IPAM plugin and get back the config to apply
@@ -453,7 +499,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 			// bridge. Hairpin mode causes echos of neighbor solicitation
 			// packets, which causes DAD failures.
 			for _, ipc := range result.IPs {
-				if ipc.Version == "6" && (n.HairpinMode || n.PromiscMode) {
+				if ipc.Address.IP.To4() == nil && (n.HairpinMode || n.PromiscMode) {
 					if err := disableIPV6DAD(args.IfName); err != nil {
 						return err
 					}
@@ -496,7 +542,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 			}
 
 			for _, ipc := range result.IPs {
-				if ipc.Version == "4" {
+				if ipc.Address.IP.To4() != nil {
 					_ = arping.GratuitousArpOverIface(ipc.Address.IP, *contVeth)
 				}
 			}
@@ -578,7 +624,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 }
 
 func cmdDel(args *skel.CmdArgs) error {
-	n, _, err := loadNetConf(args.StdinData)
+	n, _, err := loadNetConf(args.StdinData, args.Args)
 	if err != nil {
 		return err
 	}
@@ -769,7 +815,7 @@ func validateCniContainerInterface(intf current.Interface) (cniBridgeIf, error) 
 
 func cmdCheck(args *skel.CmdArgs) error {
 
-	n, _, err := loadNetConf(args.StdinData)
+	n, _, err := loadNetConf(args.StdinData, args.Args)
 	if err != nil {
 		return err
 	}
