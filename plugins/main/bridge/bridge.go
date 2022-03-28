@@ -18,13 +18,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
+	"os"
 	"runtime"
 	"syscall"
 	"time"
 
-	"github.com/j-keck/arping"
 	"github.com/vishvananda/netlink"
 
 	"github.com/containernetworking/cni/pkg/skel"
@@ -33,6 +32,7 @@ import (
 	"github.com/containernetworking/cni/pkg/version"
 	"github.com/containernetworking/plugins/pkg/ip"
 	"github.com/containernetworking/plugins/pkg/ipam"
+	"github.com/containernetworking/plugins/pkg/link"
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/containernetworking/plugins/pkg/utils"
 	bv "github.com/containernetworking/plugins/pkg/utils/buildversion"
@@ -55,6 +55,8 @@ type NetConf struct {
 	HairpinMode  bool   `json:"hairpinMode"`
 	PromiscMode  bool   `json:"promiscMode"`
 	Vlan         int    `json:"vlan"`
+	MacSpoofChk  bool   `json:"macspoofchk,omitempty"`
+	EnableDad    bool   `json:"enabledad,omitempty"`
 
 	Args struct {
 		Cni BridgeArgs `json:"cni,omitempty"`
@@ -321,6 +323,11 @@ func ensureVlanInterface(br *netlink.Bridge, vlanId int) (netlink.Link, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to lookup %q: %v", brGatewayIface.Name, err)
 		}
+
+		err = netlink.LinkSetUp(brGatewayVeth)
+		if err != nil {
+			return nil, fmt.Errorf("failed to up %q: %v", brGatewayIface.Name, err)
+		}
 	}
 
 	return brGatewayVeth, nil
@@ -395,20 +402,6 @@ func setupBridge(n *NetConf) (*netlink.Bridge, *current.Interface, error) {
 	}, nil
 }
 
-// disableIPV6DAD disables IPv6 Duplicate Address Detection (DAD)
-// for an interface, if the interface does not support enhanced_dad.
-// We do this because interfaces with hairpin mode will see their own DAD packets
-func disableIPV6DAD(ifName string) error {
-	// ehanced_dad sends a nonce with the DAD packets, so that we can safely
-	// ignore ourselves
-	enh, err := ioutil.ReadFile(fmt.Sprintf("/proc/sys/net/ipv6/conf/%s/enhanced_dad", ifName))
-	if err == nil && string(enh) == "1\n" {
-		return nil
-	}
-	f := fmt.Sprintf("/proc/sys/net/ipv6/conf/%s/accept_dad", ifName)
-	return ioutil.WriteFile(f, []byte("0"), 0644)
-}
-
 func enableIPForward(family int) error {
 	if family == netlink.FAMILY_V4 {
 		return ip.EnableIP4Forward()
@@ -460,6 +453,20 @@ func cmdAdd(args *skel.CmdArgs) error {
 		},
 	}
 
+	if n.MacSpoofChk {
+		sc := link.NewSpoofChecker(hostInterface.Name, containerInterface.Mac, uniqueID(args.ContainerID, args.IfName))
+		if err := sc.Setup(); err != nil {
+			return err
+		}
+		defer func() {
+			if !success {
+				if err := sc.Teardown(); err != nil {
+					fmt.Fprintf(os.Stderr, "%v", err)
+				}
+			}
+		}()
+	}
+
 	if isLayer3 {
 		// run the IPAM plugin and get back the config to apply
 		r, err := ipam.ExecAdd(n.IPAM.Type, args.StdinData)
@@ -495,17 +502,13 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 		// Configure the container hardware address and IP address(es)
 		if err := netns.Do(func(_ ns.NetNS) error {
-			// Disable IPv6 DAD just in case hairpin mode is enabled on the
-			// bridge. Hairpin mode causes echos of neighbor solicitation
-			// packets, which causes DAD failures.
-			for _, ipc := range result.IPs {
-				if ipc.Address.IP.To4() == nil && (n.HairpinMode || n.PromiscMode) {
-					if err := disableIPV6DAD(args.IfName); err != nil {
-						return err
-					}
-					break
-				}
+			if n.EnableDad {
+				_, _ = sysctl.Sysctl(fmt.Sprintf("/net/ipv6/conf/%s/enhanced_dad", args.IfName), "1")
+				_, _ = sysctl.Sysctl(fmt.Sprintf("net/ipv6/conf/%s/accept_dad", args.IfName), "1")
+			} else {
+				_, _ = sysctl.Sysctl(fmt.Sprintf("net/ipv6/conf/%s/accept_dad", args.IfName), "0")
 			}
+			_, _ = sysctl.Sysctl(fmt.Sprintf("net/ipv4/conf/%s/arp_notify", args.IfName), "1")
 
 			// Add the IP to the interface
 			if err := ipam.ConfigureIface(args.IfName, result); err != nil {
@@ -532,23 +535,6 @@ func cmdAdd(args *skel.CmdArgs) error {
 			if idx == len(retries)-1 {
 				return fmt.Errorf("bridge port in error state: %s", hostVeth.Attrs().OperState)
 			}
-		}
-
-		// Send a gratuitous arp
-		if err := netns.Do(func(_ ns.NetNS) error {
-			contVeth, err := net.InterfaceByName(args.IfName)
-			if err != nil {
-				return err
-			}
-
-			for _, ipc := range result.IPs {
-				if ipc.Address.IP.To4() != nil {
-					_ = arping.GratuitousArpOverIface(ipc.Address.IP, *contVeth)
-				}
-			}
-			return nil
-		}); err != nil {
-			return err
 		}
 
 		if n.IsGW {
@@ -601,6 +587,20 @@ func cmdAdd(args *skel.CmdArgs) error {
 				}
 			}
 		}
+	} else {
+		if err := netns.Do(func(_ ns.NetNS) error {
+			link, err := netlink.LinkByName(args.IfName)
+			if err != nil {
+				return fmt.Errorf("failed to retrieve link: %v", err)
+			}
+			// If layer 2 we still need to set the container veth to up
+			if err = netlink.LinkSetUp(link); err != nil {
+				return fmt.Errorf("failed to set %q up: %v", args.IfName, err)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
 	}
 
 	// Refetch the bridge since its MAC address may change when the first
@@ -631,14 +631,17 @@ func cmdDel(args *skel.CmdArgs) error {
 
 	isLayer3 := n.IPAM.Type != ""
 
-	if isLayer3 {
-		if err := ipam.ExecDel(n.IPAM.Type, args.StdinData); err != nil {
-			return err
+	ipamDel := func() error {
+		if isLayer3 {
+			if err := ipam.ExecDel(n.IPAM.Type, args.StdinData); err != nil {
+				return err
+			}
 		}
+		return nil
 	}
 
 	if args.Netns == "" {
-		return nil
+		return ipamDel()
 	}
 
 	// There is a netns so try to clean up. Delete can be called multiple times
@@ -655,7 +658,26 @@ func cmdDel(args *skel.CmdArgs) error {
 	})
 
 	if err != nil {
+		//  if NetNs is passed down by the Cloud Orchestration Engine, or if it called multiple times
+		// so don't return an error if the device is already removed.
+		// https://github.com/kubernetes/kubernetes/issues/43014#issuecomment-287164444
+		_, ok := err.(ns.NSPathNotExistErr)
+		if ok {
+			return ipamDel()
+		}
 		return err
+	}
+
+	// call ipam.ExecDel after clean up device in netns
+	if err := ipamDel(); err != nil {
+		return err
+	}
+
+	if n.MacSpoofChk {
+		sc := link.NewSpoofChecker("", "", uniqueID(args.ContainerID, args.IfName))
+		if err := sc.Teardown(); err != nil {
+			fmt.Fprintf(os.Stderr, "%v", err)
+		}
 	}
 
 	if isLayer3 && n.IPMasq {
@@ -937,4 +959,8 @@ func cmdCheck(args *skel.CmdArgs) error {
 	}
 
 	return nil
+}
+
+func uniqueID(containerID, cniIface string) string {
+	return containerID + "-" + cniIface
 }
