@@ -31,6 +31,7 @@ import (
 	"github.com/containernetworking/plugins/pkg/ipam"
 	"github.com/containernetworking/plugins/pkg/ns"
 	bv "github.com/containernetworking/plugins/pkg/utils/buildversion"
+	"github.com/containernetworking/plugins/pkg/utils/sysctl"
 )
 
 type NetConf struct {
@@ -254,7 +255,12 @@ func cmdAdd(args *skel.CmdArgs) error {
 	result.Interfaces = []*current.Interface{ipvlanInterface}
 
 	err = netns.Do(func(_ ns.NetNS) error {
-		return ipam.ConfigureIface(args.IfName, result)
+		_, _ = sysctl.Sysctl(fmt.Sprintf("net/ipv4/conf/%s/arp_notify", args.IfName), "1")
+
+		if err := ipam.ConfigureIface(args.IfName, result); err != nil {
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return err
@@ -293,6 +299,17 @@ func cmdDel(args *skel.CmdArgs) error {
 		}
 		return nil
 	})
+
+	if err != nil {
+		//  if NetNs is passed down by the Cloud Orchestration Engine, or if it called multiple times
+		// so don't return an error if the device is already removed.
+		// https://github.com/kubernetes/kubernetes/issues/43014#issuecomment-287164444
+		_, ok := err.(ns.NSPathNotExistErr)
+		if ok {
+			return nil
+		}
+		return err
+	}
 
 	return err
 }

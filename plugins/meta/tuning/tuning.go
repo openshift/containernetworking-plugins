@@ -27,7 +27,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/j-keck/arping"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 
@@ -315,18 +314,17 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return err
 	}
 
-	result, err := current.NewResultFromResult(tuningConf.PrevResult)
-	if err != nil {
-		return err
-	}
-
 	// The directory /proc/sys/net is per network namespace. Enter in the
 	// network namespace before writing on it.
 
 	err = ns.WithNetNSPath(args.Netns, func(_ ns.NetNS) error {
 		for key, value := range tuningConf.SysCtl {
+			// If the key contains `IFNAME` - substitute it with args.IfName
+			// to allow setting sysctls on a particular interface, on which
+			// other operations (like mac/mtu setting) are performed
+			key = strings.Replace(key, "IFNAME", args.IfName, 1)
+
 			fileName := filepath.Join("/proc/sys", strings.Replace(key, ".", "/", -1))
-			fileName = filepath.Clean(fileName)
 
 			// Refuse to modify sysctl parameters that don't belong
 			// to the network subsystem.
@@ -349,12 +347,6 @@ func cmdAdd(args *skel.CmdArgs) error {
 		if tuningConf.Mac != "" {
 			if err = changeMacAddr(args.IfName, tuningConf.Mac); err != nil {
 				return err
-			}
-
-			for _, ipc := range result.IPs {
-				if ipc.Address.IP.To4() != nil {
-					_ = arping.GratuitousArpOverIfaceByName(ipc.Address.IP, args.IfName)
-				}
 			}
 
 			updateResultsMacAddr(tuningConf, args.IfName, tuningConf.Mac)
@@ -428,7 +420,6 @@ func cmdCheck(args *skel.CmdArgs) error {
 		// Check each configured value vs what's currently in the container
 		for key, confValue := range tuningConf.SysCtl {
 			fileName := filepath.Join("/proc/sys", strings.Replace(key, ".", "/", -1))
-			fileName = filepath.Clean(fileName)
 
 			contents, err := ioutil.ReadFile(fileName)
 			if err != nil {

@@ -21,7 +21,6 @@ import (
 	"net"
 	"runtime"
 
-	"github.com/j-keck/arping"
 	"github.com/vishvananda/netlink"
 
 	"github.com/containernetworking/cni/pkg/skel"
@@ -33,6 +32,7 @@ import (
 	"github.com/containernetworking/plugins/pkg/ipam"
 	"github.com/containernetworking/plugins/pkg/ns"
 	bv "github.com/containernetworking/plugins/pkg/utils/buildversion"
+	"github.com/containernetworking/plugins/pkg/utils/sysctl"
 )
 
 type NetConf struct {
@@ -294,19 +294,10 @@ func cmdAdd(args *skel.CmdArgs) error {
 		}
 
 		err = netns.Do(func(_ ns.NetNS) error {
+			_, _ = sysctl.Sysctl(fmt.Sprintf("net/ipv4/conf/%s/arp_notify", args.IfName), "1")
+
 			if err := ipam.ConfigureIface(args.IfName, result); err != nil {
 				return err
-			}
-
-			contVeth, err := net.InterfaceByName(args.IfName)
-			if err != nil {
-				return fmt.Errorf("failed to look up %q: %v", args.IfName, err)
-			}
-
-			for _, ipc := range result.IPs {
-				if ipc.Address.IP.To4() != nil {
-					_ = arping.GratuitousArpOverIface(ipc.Address.IP, *contVeth)
-				}
 			}
 			return nil
 		})
@@ -366,6 +357,17 @@ func cmdDel(args *skel.CmdArgs) error {
 		}
 		return nil
 	})
+
+	if err != nil {
+		//  if NetNs is passed down by the Cloud Orchestration Engine, or if it called multiple times
+		// so don't return an error if the device is already removed.
+		// https://github.com/kubernetes/kubernetes/issues/43014#issuecomment-287164444
+		_, ok := err.(ns.NSPathNotExistErr)
+		if ok {
+			return nil
+		}
+		return err
+	}
 
 	return err
 }
