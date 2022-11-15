@@ -1,4 +1,4 @@
-// Copyright 2015 CNI authors
+// Copyright 2022 Arista Networks
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,16 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+package main_test
 
-import "net"
+import (
+	"github.com/onsi/gomega/gexec"
 
-type Store interface {
-	Lock() error
-	Unlock() error
-	Close() error
-	Reserve(id string, ifname string, ip net.IP, rangeID string) (bool, error)
-	LastReservedIP(rangeID string) (net.IP, error)
-	ReleaseByID(id string, ifname string) error
-	GetByID(id string, ifname string) []net.IP
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+
+	"testing"
+)
+
+var pathToLoPlugin string
+
+func TestLoopback(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "plugins/main/dummy")
 }
+
+var _ = BeforeSuite(func() {
+	var err error
+	pathToLoPlugin, err = gexec.Build("github.com/containernetworking/plugins/plugins/main/dummy")
+	Expect(err).NotTo(HaveOccurred())
+})
+
+var _ = AfterSuite(func() {
+	gexec.CleanupBuildArtifacts()
+})
