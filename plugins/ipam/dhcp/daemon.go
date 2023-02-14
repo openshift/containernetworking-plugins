@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/rpc"
@@ -80,12 +79,20 @@ func (d *DHCP) Allocate(args *skel.CmdArgs, result *current.Result) error {
 	}
 
 	clientID := generateClientID(args.ContainerID, conf.Name, args.IfName)
-	hostNetns := d.hostNetnsPrefix + args.Netns
-	l, err := AcquireLease(clientID, hostNetns, args.IfName,
-		optsRequesting, optsProviding,
-		d.clientTimeout, d.clientResendMax, d.broadcast)
-	if err != nil {
-		return err
+
+	// If we already have an active lease for this clientID, do not create
+	// another one
+	l := d.getLease(clientID)
+	if l != nil {
+		l.Check()
+	} else {
+		hostNetns := d.hostNetnsPrefix + args.Netns
+		l, err = AcquireLease(clientID, hostNetns, args.IfName,
+			optsRequesting, optsProviding,
+			d.clientTimeout, d.clientResendMax, d.broadcast)
+		if err != nil {
+			return err
+		}
 	}
 
 	ipn, err := l.IPNet()
@@ -142,7 +149,7 @@ func (d *DHCP) setLease(clientID string, l *DHCPLease) {
 	d.leases[clientID] = l
 }
 
-//func (d *DHCP) clearLease(contID, netName, ifName string) {
+// func (d *DHCP) clearLease(contID, netName, ifName string) {
 func (d *DHCP) clearLease(clientID string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
@@ -188,7 +195,7 @@ func runDaemon(
 		if !filepath.IsAbs(pidfilePath) {
 			return fmt.Errorf("Error writing pidfile %q: path not absolute", pidfilePath)
 		}
-		if err := ioutil.WriteFile(pidfilePath, []byte(fmt.Sprintf("%d", os.Getpid())), 0644); err != nil {
+		if err := os.WriteFile(pidfilePath, []byte(fmt.Sprintf("%d", os.Getpid())), 0644); err != nil {
 			return fmt.Errorf("Error writing pidfile %q: %v", pidfilePath, err)
 		}
 	}
