@@ -1,5 +1,5 @@
 # This dockerfile is specific to building Multus for OpenShift
-FROM registry.ci.openshift.org/ocp/builder:rhel-8-golang-1.19-openshift-4.14 AS rhel8
+FROM registry.ci.openshift.org/ocp/builder:rhel-8-golang-1.20-openshift-4.14 AS rhel8
 ADD . /usr/src/plugins
 WORKDIR /usr/src/plugins
 ENV CGO_ENABLED=0
@@ -7,7 +7,7 @@ RUN ./build_linux.sh && \
     cd /usr/src/plugins/bin
 WORKDIR /
 
-FROM registry.ci.openshift.org/ocp/builder:rhel-8-golang-1.19-openshift-4.14 AS rhel7
+FROM registry.ci.openshift.org/ocp/builder:rhel-8-golang-1.20-openshift-4.14 AS rhel7
 ADD . /usr/src/plugins
 WORKDIR /usr/src/plugins
 ENV CGO_ENABLED=0
@@ -15,7 +15,7 @@ RUN ./build_linux.sh && \
     cd /usr/src/plugins/bin
 WORKDIR /
 
-FROM registry.ci.openshift.org/ocp/builder:rhel-8-golang-1.19-openshift-4.14 AS windows
+FROM registry.ci.openshift.org/ocp/builder:rhel-8-golang-1.20-openshift-4.14 AS windows
 ADD . /usr/src/plugins
 WORKDIR /usr/src/plugins
 ENV CGO_ENABLED=0
