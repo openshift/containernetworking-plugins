@@ -6,7 +6,7 @@ github.com/Microsoft/go-winio/internal/socket
 github.com/Microsoft/go-winio/internal/stringbuffer
 github.com/Microsoft/go-winio/pkg/guid
 github.com/Microsoft/go-winio/vhd
-# github.com/Microsoft/hcsshim v0.11.2
+# github.com/Microsoft/hcsshim v0.11.4
 ## explicit; go 1.18
 github.com/Microsoft/hcsshim
 github.com/Microsoft/hcsshim/computestorage
@@ -49,7 +49,6 @@ github.com/containerd/cgroups/stats/v1
 # github.com/containerd/containerd v1.6.23
 ## explicit; go 1.18
 github.com/containerd/containerd/errdefs
-github.com/containerd/containerd/log
 # github.com/containernetworking/cni v1.1.2
 ## explicit; go 1.14
 github.com/containernetworking/cni/libcni
