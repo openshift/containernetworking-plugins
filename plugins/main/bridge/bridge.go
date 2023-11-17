@@ -629,14 +629,10 @@ func cmdAdd(args *skel.CmdArgs) error {
 		}
 
 		if n.IsGW {
-			var firstV4Addr net.IP
 			var vlanInterface *current.Interface
 			// Set the IP address(es) on the bridge and enable forwarding
 			for _, gws := range []*gwInfo{gwsV4, gwsV6} {
 				for _, gw := range gws.gws {
-					if gw.IP.To4() != nil && firstV4Addr == nil {
-						firstV4Addr = gw.IP
-					}
 					if n.Vlan != 0 {
 						vlanIface, err := ensureVlanInterface(br, n.Vlan, n.PreserveDefaultVlan)
 						if err != nil {
@@ -733,7 +729,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 
 	// Use incoming DNS settings if provided, otherwise use the
-	// settings that were already configued by the IPAM plugin
+	// settings that were already configured by the IPAM plugin
 	if dnsConfSet(n.DNS) {
 		result.DNS = n.DNS
 	}
