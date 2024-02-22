@@ -1,0 +1,23 @@
+# This dockerfile is specific to building Multus for OpenShift
+FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.21-openshift-4.16 AS rhel9
+ADD . /usr/src/plugins
+WORKDIR /usr/src/plugins
+ENV CGO_ENABLED=1
+RUN ./build_linux.sh
+WORKDIR /
+
+FROM registry.ci.openshift.org/ocp/4.16:base-rhel9
+RUN mkdir -p /usr/src/plugins/bin
+COPY --from=rhel9 \
+  /usr/src/plugins/bin/bridge \
+  /usr/src/plugins/bin/macvlan \
+  /usr/src/plugins/bin/ipvlan \
+  /usr/src/plugins/bin/static \
+  /usr/src/plugins/bin/dhcp \
+  /usr/src/plugins/bin/host-local \
+  /usr/src/plugins/bin/
+
+LABEL io.k8s.display-name="Container Networking Plugins for MicroShift" \
+      io.k8s.description="This is an optional component of MicroShift and provides the reference CNI plugins." \
+      io.openshift.tags="microshift" \
+      maintainer="Doug Smith <dosmith@redhat.com>"
