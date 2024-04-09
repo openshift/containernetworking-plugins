@@ -24,7 +24,7 @@ RUN ./build_windows.sh && \
     cd /usr/src/plugins/bin
 WORKDIR /
 
-FROM registry.ci.openshift.org/ocp/4.16:base
+FROM registry.ci.openshift.org/ocp/4.16:base-rhel9
 RUN mkdir -p /usr/src/plugins/bin && \
     mkdir -p /usr/src/plugins/rhel8/bin && \
     mkdir -p /usr/src/plugins/rhel9/bin && \
