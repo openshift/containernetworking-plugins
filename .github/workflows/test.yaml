@@ -20,7 +20,7 @@ jobs:
       - uses: ibiqlik/action-yamllint@v3
         with:
           format: auto
-      - uses: golangci/golangci-lint-action@v3
+      - uses: golangci/golangci-lint-action@v5
         with:
           args: -v
           skip-cache: true
