@@ -7,7 +7,8 @@ RUN ./build_linux.sh
 WORKDIR /
 
 FROM registry.ci.openshift.org/ocp/4.16:base-rhel9
-RUN mkdir -p /usr/src/plugins/bin
+RUN dnf install -y util-linux && dnf clean all && \
+    mkdir -p /usr/src/plugins/bin
 COPY --from=rhel9 \
   /usr/src/plugins/bin/bridge \
   /usr/src/plugins/bin/macvlan \

@@ -25,7 +25,8 @@ RUN ./build_windows.sh && \
 WORKDIR /
 
 FROM registry.ci.openshift.org/ocp/4.16:base-rhel9
-RUN mkdir -p /usr/src/plugins/bin && \
+RUN dnf install -y util-linux && dnf clean all && \
+    mkdir -p /usr/src/plugins/bin && \
     mkdir -p /usr/src/plugins/rhel8/bin && \
     mkdir -p /usr/src/plugins/rhel9/bin && \
     mkdir -p /usr/src/plugins/windows/bin
