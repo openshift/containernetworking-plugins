@@ -79,6 +79,7 @@ type testCase struct {
 	ipMasq            bool
 	macspoofchk       bool
 	disableContIface  bool
+	portIsolation     bool
 
 	AddErr020 string
 	DelErr020 string
@@ -158,6 +159,9 @@ const (
 
 	disableContainerInterface = `,
     "disableContainerInterface": true`
+
+	portIsolation = `,
+    "portIsolation": true`
 
 	ipamStartStr = `,
     "ipam": {
@@ -255,6 +259,10 @@ func (tc testCase) netConfJSON(dataDir string) string {
 
 	if tc.disableContIface {
 		conf += disableContainerInterface
+	}
+
+	if tc.portIsolation {
+		conf += portIsolation
 	}
 
 	if !tc.isLayer2 {
@@ -629,6 +637,10 @@ func (tester *testerV10x) cmdAddTest(tc testCase, dataDir string) (types.Result,
 		Expect(err).NotTo(HaveOccurred())
 		Expect(link).To(BeAssignableToTypeOf(&netlink.Veth{}))
 		tester.vethName = result.Interfaces[1].Name
+
+		protInfo, err := netlink.LinkGetProtinfo(link)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(protInfo.Isolated).To(Equal(tc.portIsolation), "link isolation should be on when portIsolation is set")
 
 		// check vlan exist on the veth interface
 		if tc.vlan != 0 {
@@ -2515,6 +2527,36 @@ var _ = Describe("bridge Operations", func() {
 					isLayer2:         true,
 					AddErr020:        "cannot convert: no valid IP addresses",
 					AddErr010:        "cannot convert: no valid IP addresses",
+				}
+				cmdAddDelTest(originalNS, targetNS, tc, dataDir)
+				return nil
+			})).To(Succeed())
+		})
+
+		It(fmt.Sprintf("[%s] when port-isolation is off, should set the veth peer on node with isolation off", ver), func() {
+			Expect(originalNS.Do(func(ns.NetNS) error {
+				defer GinkgoRecover()
+				tc := testCase{
+					cniVersion:    ver,
+					portIsolation: false,
+					isLayer2:      true,
+					AddErr020:     "cannot convert: no valid IP addresses",
+					AddErr010:     "cannot convert: no valid IP addresses",
+				}
+				cmdAddDelTest(originalNS, targetNS, tc, dataDir)
+				return nil
+			})).To(Succeed())
+		})
+
+		It(fmt.Sprintf("[%s] when port-isolation is on, should set the veth peer on node with isolation on", ver), func() {
+			Expect(originalNS.Do(func(ns.NetNS) error {
+				defer GinkgoRecover()
+				tc := testCase{
+					cniVersion:    ver,
+					portIsolation: true,
+					isLayer2:      true,
+					AddErr020:     "cannot convert: no valid IP addresses",
+					AddErr010:     "cannot convert: no valid IP addresses",
 				}
 				cmdAddDelTest(originalNS, targetNS, tc, dataDir)
 				return nil
