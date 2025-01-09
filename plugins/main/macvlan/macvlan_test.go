@@ -117,7 +117,7 @@ type (
 
 func newTesterByVersion(version string) tester {
 	switch {
-	case strings.HasPrefix(version, "1.0."):
+	case strings.HasPrefix(version, "1."):
 		return &testerV10x{}
 	case strings.HasPrefix(version, "0.4."):
 		return &testerV04x{}
@@ -208,11 +208,11 @@ var _ = Describe("macvlan Operations", func() {
 		err = originalNS.Do(func(ns.NetNS) error {
 			defer GinkgoRecover()
 
+			linkAttrs := netlink.NewLinkAttrs()
+			linkAttrs.Name = MASTER_NAME
 			// Add master
 			err = netlink.LinkAdd(&netlink.Dummy{
-				LinkAttrs: netlink.LinkAttrs{
-					Name: MASTER_NAME,
-				},
+				LinkAttrs: linkAttrs,
 			})
 			Expect(err).NotTo(HaveOccurred())
 			_, err = netlink.LinkByName(MASTER_NAME)
@@ -224,11 +224,11 @@ var _ = Describe("macvlan Operations", func() {
 		err = targetNS.Do(func(ns.NetNS) error {
 			defer GinkgoRecover()
 
+			linkAttrs := netlink.NewLinkAttrs()
+			linkAttrs.Name = MASTER_NAME_INCONTAINER
 			// Add master
 			err = netlink.LinkAdd(&netlink.Dummy{
-				LinkAttrs: netlink.LinkAttrs{
-					Name: MASTER_NAME_INCONTAINER,
-				},
+				LinkAttrs: linkAttrs,
 			})
 			Expect(err).NotTo(HaveOccurred())
 			_, err = netlink.LinkByName(MASTER_NAME_INCONTAINER)
@@ -321,6 +321,13 @@ var _ = Describe("macvlan Operations", func() {
 				var macAddress string
 				err := originalNS.Do(func(ns.NetNS) error {
 					defer GinkgoRecover()
+
+					if testutils.SpecVersionHasSTATUS(ver) {
+						err := testutils.CmdStatus(func() error {
+							return cmdStatus(args)
+						})
+						Expect(err).NotTo(HaveOccurred())
+					}
 
 					result, _, err := testutils.CmdAddWithArgs(args, func() error {
 						return cmdAdd(args)
@@ -434,6 +441,13 @@ var _ = Describe("macvlan Operations", func() {
 				err := originalNS.Do(func(ns.NetNS) error {
 					defer GinkgoRecover()
 
+					if testutils.SpecVersionHasSTATUS(ver) {
+						err := testutils.CmdStatus(func() error {
+							return cmdStatus(args)
+						})
+						Expect(err).NotTo(HaveOccurred())
+					}
+
 					result, _, err := testutils.CmdAddWithArgs(args, func() error {
 						return cmdAdd(args)
 					})
@@ -520,6 +534,13 @@ var _ = Describe("macvlan Operations", func() {
 					defer GinkgoRecover()
 
 					var err error
+					if testutils.SpecVersionHasSTATUS(ver) {
+						err := testutils.CmdStatus(func() error {
+							return cmdStatus(args)
+						})
+						Expect(err).NotTo(HaveOccurred())
+					}
+
 					result, _, err = testutils.CmdAddWithArgs(args, func() error {
 						return cmdAdd(args)
 					})
@@ -659,6 +680,13 @@ var _ = Describe("macvlan Operations", func() {
 				var macAddress string
 				err = originalNS.Do(func(ns.NetNS) error {
 					defer GinkgoRecover()
+
+					if testutils.SpecVersionHasSTATUS(ver) {
+						err := testutils.CmdStatus(func() error {
+							return cmdStatus(args)
+						})
+						Expect(err).NotTo(HaveOccurred())
+					}
 
 					result, _, err := testutils.CmdAddWithArgs(args, func() error {
 						return cmdAdd(args)
