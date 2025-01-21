@@ -55,6 +55,17 @@ const (
 	leaseStateRebinding
 )
 
+// Timing for retrying link existence check
+const (
+	linkCheckDelay0       = 1 * time.Second
+	linkCheckRetryMax     = 10 * time.Second
+	linkCheckTotalTimeout = 30 * time.Second
+)
+
+const (
+	netlinkLinkNotFoundErrorString = "Link not found"
+)
+
 // This implementation uses 1 OS thread per lease. This is because
 // all the network operations have to be done in network namespace
 // of the interface. This can be improved by switching to the proper
@@ -292,6 +303,14 @@ func (l *DHCPLease) maintain() {
 	for {
 		var sleepDur time.Duration
 
+		linkCheckCtx, cancel := context.WithTimeoutCause(l.ctx, l.resendTimeout, errNoMoreTries)
+		defer cancel()
+		linkExists, _ := l.checkLinkExistsWithBackoff(linkCheckCtx)
+		if !linkExists {
+			log.Printf("%v: interface %s no longer exists or link check failed, terminating lease maintenance", l.clientID, l.link.Attrs().Name)
+			return
+		}
+
 		switch state {
 		case leaseStateBound:
 			sleepDur = time.Until(l.renewalTime)
@@ -340,6 +359,45 @@ func (l *DHCPLease) maintain() {
 				log.Printf("%v: failed to release DHCP lease: %v", l.clientID, err)
 			}
 			return
+		}
+	}
+}
+
+func (l *DHCPLease) checkLinkExistsWithBackoff(ctx context.Context) (bool, error) {
+	checkFunc := func() (bool, error) {
+		_, err := netlink.LinkByName(l.link.Attrs().Name)
+		if err != nil {
+			// Capture if it contains the netlink link not found error string, otherwise, retry.
+			if err != nil && strings.Contains(err.Error(), netlinkLinkNotFoundErrorString) {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, linkCheckTotalTimeout)
+	defer cancel()
+
+	exists, err := backoffRetryLinkExists(ctx, linkCheckRetryMax, checkFunc)
+	return exists, err
+}
+
+func backoffRetryLinkExists(ctx context.Context, maxDelay time.Duration, f func() (bool, error)) (bool, error) {
+	var baseDelay = linkCheckDelay0
+	for {
+		exists, err := f()
+		if err == nil {
+			return exists, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err() // Context's done, return with its error
+		case <-time.After(baseDelay):
+			if baseDelay < maxDelay {
+				baseDelay *= 2
+			}
 		}
 	}
 }
