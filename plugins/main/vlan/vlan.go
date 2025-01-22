@@ -119,14 +119,15 @@ func createVlan(conf *NetConf, ifName string, netns ns.NetNS) (*current.Interfac
 		return nil, err
 	}
 
+	linkAttrs := netlink.NewLinkAttrs()
+	linkAttrs.MTU = conf.MTU
+	linkAttrs.Name = tmpName
+	linkAttrs.ParentIndex = m.Attrs().Index
+	linkAttrs.Namespace = netlink.NsFd(int(netns.Fd()))
+
 	v := &netlink.Vlan{
-		LinkAttrs: netlink.LinkAttrs{
-			MTU:         conf.MTU,
-			Name:        tmpName,
-			ParentIndex: m.Attrs().Index,
-			Namespace:   netlink.NsFd(int(netns.Fd())),
-		},
-		VlanId: conf.VlanID,
+		LinkAttrs: linkAttrs,
+		VlanId:    conf.VlanID,
 	}
 
 	if conf.LinkContNs {
@@ -244,7 +245,6 @@ func cmdDel(args *skel.CmdArgs) error {
 		}
 		return err
 	})
-
 	if err != nil {
 		//  if NetNs is passed down by the Cloud Orchestration Engine, or if it called multiple times
 		// so don't return an error if the device is already removed.
@@ -260,7 +260,13 @@ func cmdDel(args *skel.CmdArgs) error {
 }
 
 func main() {
-	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.All, bv.BuildString("vlan"))
+	skel.PluginMainFuncs(skel.CNIFuncs{
+		Add:    cmdAdd,
+		Check:  cmdCheck,
+		Del:    cmdDel,
+		Status: cmdStatus,
+		/* FIXME GC */
+	}, version.All, bv.BuildString("vlan"))
 }
 
 func cmdCheck(args *skel.CmdArgs) error {
@@ -390,6 +396,21 @@ func validateCniContainerInterface(intf current.Interface, vlanID int, mtu int) 
 				intf.Name, mtu, link.Attrs().MTU)
 		}
 	}
+
+	return nil
+}
+
+func cmdStatus(args *skel.CmdArgs) error {
+	conf := NetConf{}
+	if err := json.Unmarshal(args.StdinData, &conf); err != nil {
+		return fmt.Errorf("failed to load netconf: %w", err)
+	}
+
+	if err := ipam.ExecStatus(conf.IPAM.Type, args.StdinData); err != nil {
+		return err
+	}
+
+	// TODO: Check if master interface exists.
 
 	return nil
 }

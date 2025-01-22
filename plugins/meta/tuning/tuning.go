@@ -319,7 +319,7 @@ func restoreBackup(ifName, containerID, backupPath string) error {
 	}
 
 	if len(errStr) > 0 {
-		return fmt.Errorf(strings.Join(errStr, "; "))
+		return errors.New(strings.Join(errStr, "; "))
 	}
 
 	if err = os.Remove(filePath); err != nil {
@@ -433,7 +433,13 @@ func cmdDel(args *skel.CmdArgs) error {
 }
 
 func main() {
-	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.All, bv.BuildString("tuning"))
+	skel.PluginMainFuncs(skel.CNIFuncs{
+		Add:   cmdAdd,
+		Check: cmdCheck,
+		Del:   cmdDel,
+		/* FIXME GC */
+		/* FIXME Status */
+	}, version.All, bv.BuildString("tuning"))
 }
 
 func cmdCheck(args *skel.CmdArgs) error {

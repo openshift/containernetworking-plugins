@@ -31,7 +31,6 @@ import (
 	"github.com/containernetworking/plugins/pkg/ip"
 	"github.com/containernetworking/plugins/pkg/ipam"
 	"github.com/containernetworking/plugins/pkg/ns"
-	"github.com/containernetworking/plugins/pkg/utils"
 	bv "github.com/containernetworking/plugins/pkg/utils/buildversion"
 )
 
@@ -44,8 +43,9 @@ func init() {
 
 type NetConf struct {
 	types.NetConf
-	IPMasq bool `json:"ipMasq"`
-	MTU    int  `json:"mtu"`
+	IPMasq        bool    `json:"ipMasq"`
+	IPMasqBackend *string `json:"ipMasqBackend,omitempty"`
+	MTU           int     `json:"mtu"`
 }
 
 func setupContainerVeth(netns ns.NetNS, ifName string, mtu int, pr *current.Result) (*current.Interface, *current.Interface, error) {
@@ -229,12 +229,12 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 
 	if conf.IPMasq {
-		chain := utils.FormatChainName(conf.Name, args.ContainerID)
-		comment := utils.FormatComment(conf.Name, args.ContainerID)
+		ipns := []*net.IPNet{}
 		for _, ipc := range result.IPs {
-			if err = ip.SetupIPMasq(&ipc.Address, chain, comment); err != nil {
-				return err
-			}
+			ipns = append(ipns, &ipc.Address)
+		}
+		if err = ip.SetupIPMasqForNetworks(conf.IPMasqBackend, ipns, conf.Name, args.IfName, args.ContainerID); err != nil {
+			return err
 		}
 	}
 
@@ -293,10 +293,8 @@ func cmdDel(args *skel.CmdArgs) error {
 	}
 
 	if len(ipnets) != 0 && conf.IPMasq {
-		chain := utils.FormatChainName(conf.Name, args.ContainerID)
-		comment := utils.FormatComment(conf.Name, args.ContainerID)
-		for _, ipn := range ipnets {
-			err = ip.TeardownIPMasq(ipn, chain, comment)
+		if err := ip.TeardownIPMasqForNetworks(ipnets, conf.Name, args.IfName, args.ContainerID); err != nil {
+			return err
 		}
 	}
 
@@ -304,7 +302,13 @@ func cmdDel(args *skel.CmdArgs) error {
 }
 
 func main() {
-	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.All, bv.BuildString("ptp"))
+	skel.PluginMainFuncs(skel.CNIFuncs{
+		Add:    cmdAdd,
+		Check:  cmdCheck,
+		Del:    cmdDel,
+		Status: cmdStatus,
+		/* FIXME GC */
+	}, version.All, bv.BuildString("ptp"))
 }
 
 func cmdCheck(args *skel.CmdArgs) error {
@@ -403,6 +407,19 @@ func validateCniContainerInterface(intf current.Interface) error {
 		if intf.Mac != link.Attrs().HardwareAddr.String() {
 			return fmt.Errorf("ptp: Interface %s Mac %s doesn't match container Mac: %s", intf.Name, intf.Mac, link.Attrs().HardwareAddr)
 		}
+	}
+
+	return nil
+}
+
+func cmdStatus(args *skel.CmdArgs) error {
+	conf := NetConf{}
+	if err := json.Unmarshal(args.StdinData, &conf); err != nil {
+		return fmt.Errorf("failed to load netconf: %w", err)
+	}
+
+	if err := ipam.ExecStatus(conf.IPAM.Type, args.StdinData); err != nil {
+		return err
 	}
 
 	return nil

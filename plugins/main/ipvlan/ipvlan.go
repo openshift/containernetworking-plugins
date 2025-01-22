@@ -144,14 +144,15 @@ func createIpvlan(conf *NetConf, ifName string, netns ns.NetNS) (*current.Interf
 		return nil, err
 	}
 
+	linkAttrs := netlink.NewLinkAttrs()
+	linkAttrs.MTU = conf.MTU
+	linkAttrs.Name = tmpName
+	linkAttrs.ParentIndex = m.Attrs().Index
+	linkAttrs.Namespace = netlink.NsFd(int(netns.Fd()))
+
 	mv := &netlink.IPVlan{
-		LinkAttrs: netlink.LinkAttrs{
-			MTU:         conf.MTU,
-			Name:        tmpName,
-			ParentIndex: m.Attrs().Index,
-			Namespace:   netlink.NsFd(int(netns.Fd())),
-		},
-		Mode: mode,
+		LinkAttrs: linkAttrs,
+		Mode:      mode,
 	}
 
 	if conf.LinkContNs {
@@ -195,7 +196,7 @@ func getDefaultRouteInterfaceName() (string, error) {
 	}
 
 	for _, v := range routeToDstIP {
-		if v.Dst == nil {
+		if ip.IsIPNetZero(v.Dst) {
 			l, err := netlink.LinkByIndex(v.LinkIndex)
 			if err != nil {
 				return "", err
@@ -334,7 +335,6 @@ func cmdDel(args *skel.CmdArgs) error {
 		}
 		return nil
 	})
-
 	if err != nil {
 		//  if NetNs is passed down by the Cloud Orchestration Engine, or if it called multiple times
 		// so don't return an error if the device is already removed.
@@ -350,7 +350,13 @@ func cmdDel(args *skel.CmdArgs) error {
 }
 
 func main() {
-	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.All, bv.BuildString("ipvlan"))
+	skel.PluginMainFuncs(skel.CNIFuncs{
+		Add:    cmdAdd,
+		Check:  cmdCheck,
+		Del:    cmdDel,
+		Status: cmdStatus,
+		/* FIXME GC */
+	}, version.All, bv.BuildString("ipvlan"))
 }
 
 func cmdCheck(args *skel.CmdArgs) error {
@@ -482,6 +488,22 @@ func validateCniContainerInterface(intf current.Interface, modeExpected string) 
 			return fmt.Errorf("Interface %s Mac %s doesn't match container Mac: %s", intf.Name, intf.Mac, link.Attrs().HardwareAddr)
 		}
 	}
+
+	return nil
+}
+
+func cmdStatus(args *skel.CmdArgs) error {
+	conf := NetConf{}
+	if err := json.Unmarshal(args.StdinData, &conf); err != nil {
+		return fmt.Errorf("failed to load netconf: %w", err)
+	}
+	if conf.IPAM.Type != "" {
+		if err := ipam.ExecStatus(conf.IPAM.Type, args.StdinData); err != nil {
+			return err
+		}
+	}
+
+	// TODO: Check if master interface exists.
 
 	return nil
 }

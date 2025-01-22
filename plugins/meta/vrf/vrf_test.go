@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -94,19 +95,19 @@ var _ = Describe("vrf plugin", func() {
 		err = targetNS.Do(func(ns.NetNS) error {
 			defer GinkgoRecover()
 
+			la0 := netlink.NewLinkAttrs()
+			la0.Name = IF0Name
 			err = netlink.LinkAdd(&netlink.Dummy{
-				LinkAttrs: netlink.LinkAttrs{
-					Name: IF0Name,
-				},
+				LinkAttrs: la0,
 			})
 			Expect(err).NotTo(HaveOccurred())
 			_, err = netlink.LinkByName(IF0Name)
 			Expect(err).NotTo(HaveOccurred())
 
+			la1 := netlink.NewLinkAttrs()
+			la1.Name = IF1Name
 			err = netlink.LinkAdd(&netlink.Dummy{
-				LinkAttrs: netlink.LinkAttrs{
-					Name: IF1Name,
-				},
+				LinkAttrs: la1,
 			})
 			Expect(err).NotTo(HaveOccurred())
 			_, err = netlink.LinkByName(IF1Name)
@@ -207,6 +208,18 @@ var _ = Describe("vrf plugin", func() {
 				// Add IP addresses for network reachability
 				netlink.AddrAdd(link, &netlink.Addr{IPNet: ipv4})
 				netlink.AddrAdd(link, &netlink.Addr{IPNet: ipv6})
+				// Wait for the corresponding route to be addeded
+				Eventually(func() bool {
+					ipv6RouteDst := &net.IPNet{
+						IP:   ipv6.IP,
+						Mask: net.IPMask{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+					}
+					routes, _ := netlink.RouteListFiltered(netlink.FAMILY_ALL, &netlink.Route{
+						Dst:   ipv6RouteDst,
+						Table: 0,
+					}, netlink.RT_FILTER_DST|netlink.RT_FILTER_TABLE)
+					return err == nil && len(routes) >= 1
+				}, time.Second, 500*time.Millisecond).Should(BeTrue())
 
 				ipAddrs, err := netlink.AddrList(link, netlink.FAMILY_V4)
 				Expect(err).NotTo(HaveOccurred())
@@ -304,6 +317,18 @@ var _ = Describe("vrf plugin", func() {
 				// Add IP addresses for network reachability
 				netlink.AddrAdd(link, &netlink.Addr{IPNet: ipv4})
 				netlink.AddrAdd(link, &netlink.Addr{IPNet: ipv6})
+				// Wait for the corresponding route to be addeded
+				Eventually(func() bool {
+					ipv6RouteDst := &net.IPNet{
+						IP:   ipv6.IP,
+						Mask: net.IPMask{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+					}
+					routes, _ := netlink.RouteListFiltered(netlink.FAMILY_ALL, &netlink.Route{
+						Dst:   ipv6RouteDst,
+						Table: 0,
+					}, netlink.RT_FILTER_DST|netlink.RT_FILTER_TABLE)
+					return err == nil && len(routes) >= 1
+				}, time.Second, 500*time.Millisecond).Should(BeTrue())
 
 				ipAddrs, err := netlink.AddrList(link, netlink.FAMILY_V4)
 				Expect(err).NotTo(HaveOccurred())
@@ -362,6 +387,18 @@ var _ = Describe("vrf plugin", func() {
 				// Add IP addresses for network reachability
 				netlink.AddrAdd(link, &netlink.Addr{IPNet: ipv4})
 				netlink.AddrAdd(link, &netlink.Addr{IPNet: ipv6})
+				// Wait for the corresponding route to be addeded
+				Eventually(func() bool {
+					ipv6RouteDst := &net.IPNet{
+						IP:   ipv6.IP,
+						Mask: net.IPMask{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+					}
+					routes, _ := netlink.RouteListFiltered(netlink.FAMILY_ALL, &netlink.Route{
+						Dst:   ipv6RouteDst,
+						Table: 0,
+					}, netlink.RT_FILTER_DST|netlink.RT_FILTER_TABLE)
+					return err == nil && len(routes) >= 1
+				}, time.Second, 500*time.Millisecond).Should(BeTrue())
 
 				ipAddrs, err := netlink.AddrList(link, netlink.FAMILY_V4)
 				Expect(err).NotTo(HaveOccurred())
@@ -437,10 +474,10 @@ var _ = Describe("vrf plugin", func() {
 				defer GinkgoRecover()
 				l, err := netlink.LinkByName(IF0Name)
 				Expect(err).NotTo(HaveOccurred())
+				linkAttrs := netlink.NewLinkAttrs()
+				linkAttrs.Name = "testrbridge"
 				br := &netlink.Bridge{
-					LinkAttrs: netlink.LinkAttrs{
-						Name: "testrbridge",
-					},
+					LinkAttrs: linkAttrs,
 				}
 				err = netlink.LinkAdd(br)
 				Expect(err).NotTo(HaveOccurred())

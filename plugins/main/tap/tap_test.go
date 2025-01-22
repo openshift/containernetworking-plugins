@@ -108,7 +108,7 @@ type (
 
 func newTesterByVersion(version string) tester {
 	switch {
-	case strings.HasPrefix(version, "1.0."):
+	case strings.HasPrefix(version, "1."):
 		return &testerV10x{}
 	case strings.HasPrefix(version, "0.4."):
 		return &testerV04x{}
@@ -222,6 +222,13 @@ var _ = Describe("Add, check, remove tap plugin", func() {
 
 			err = originalNS.Do(func(ns.NetNS) error {
 				defer GinkgoRecover()
+
+				if testutils.SpecVersionHasSTATUS(ver) {
+					err := testutils.CmdStatus(func() error {
+						return cmdStatus(args)
+					})
+					Expect(err).NotTo(HaveOccurred())
+				}
 
 				result, _, err = testutils.CmdAddWithArgs(args, func() error {
 					return cmdAdd(args)
@@ -346,10 +353,10 @@ var _ = Describe("Add, check, remove tap plugin", func() {
 
 			Expect(
 				targetNS.Do(func(ns.NetNS) error {
+					linkAttrs := netlink.NewLinkAttrs()
+					linkAttrs.Name = bridgeName
 					if err := netlink.LinkAdd(&netlink.Bridge{
-						LinkAttrs: netlink.LinkAttrs{
-							Name: bridgeName,
-						},
+						LinkAttrs: linkAttrs,
 					}); err != nil {
 						return err
 					}
@@ -363,6 +370,13 @@ var _ = Describe("Add, check, remove tap plugin", func() {
 
 			err = originalNS.Do(func(ns.NetNS) error {
 				defer GinkgoRecover()
+
+				if testutils.SpecVersionHasSTATUS(ver) {
+					err := testutils.CmdStatus(func() error {
+						return cmdStatus(args)
+					})
+					Expect(err).NotTo(HaveOccurred())
+				}
 
 				result, _, err = testutils.CmdAddWithArgs(args, func() error {
 					return cmdAdd(args)
