@@ -292,11 +292,6 @@ func (l *DHCPLease) maintain() {
 	for {
 		var sleepDur time.Duration
 
-		if _, err := netlink.LinkByName(l.link.Attrs().Name); err != nil {
-			log.Printf("%v: interface %s no longer exists, terminating lease maintenance", l.clientID, l.link.Attrs().Name)
-			return
-		}
-
 		switch state {
 		case leaseStateBound:
 			sleepDur = time.Until(l.renewalTime)
@@ -309,6 +304,7 @@ func (l *DHCPLease) maintain() {
 		case leaseStateRenewing:
 			if err := l.renew(); err != nil {
 				log.Printf("%v: %v", l.clientID, err)
+
 				if time.Now().After(l.rebindingTime) {
 					log.Printf("%v: renewal time expired, rebinding", l.clientID)
 					state = leaseStateRebinding
@@ -340,7 +336,6 @@ func (l *DHCPLease) maintain() {
 			log.Printf("%v: Checking lease", l.clientID)
 
 		case <-l.stop:
-			log.Printf("%v: received stop signal, releasing lease", l.clientID)
 			if err := l.release(); err != nil {
 				log.Printf("%v: failed to release DHCP lease: %v", l.clientID, err)
 			}
