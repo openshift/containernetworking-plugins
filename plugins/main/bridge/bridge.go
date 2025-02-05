@@ -35,7 +35,6 @@ import (
 	"github.com/containernetworking/plugins/pkg/ipam"
 	"github.com/containernetworking/plugins/pkg/link"
 	"github.com/containernetworking/plugins/pkg/ns"
-	"github.com/containernetworking/plugins/pkg/utils"
 	bv "github.com/containernetworking/plugins/pkg/utils/buildversion"
 	"github.com/containernetworking/plugins/pkg/utils/sysctl"
 )
@@ -52,6 +51,7 @@ type NetConf struct {
 	IsDefaultGW               bool         `json:"isDefaultGateway"`
 	ForceAddress              bool         `json:"forceAddress"`
 	IPMasq                    bool         `json:"ipMasq"`
+	IPMasqBackend             *string      `json:"ipMasqBackend,omitempty"`
 	MTU                       int          `json:"mtu"`
 	HairpinMode               bool         `json:"hairpinMode"`
 	PromiscMode               bool         `json:"promiscMode"`
@@ -61,6 +61,7 @@ type NetConf struct {
 	MacSpoofChk               bool         `json:"macspoofchk,omitempty"`
 	EnableDad                 bool         `json:"enabledad,omitempty"`
 	DisableContainerInterface bool         `json:"disableContainerInterface,omitempty"`
+	PortIsolation             bool         `json:"portIsolation,omitempty"`
 
 	Args struct {
 		Cni BridgeArgs `json:"cni,omitempty"`
@@ -335,16 +336,11 @@ func bridgeByName(name string) (*netlink.Bridge, error) {
 }
 
 func ensureBridge(brName string, mtu int, promiscMode, vlanFiltering bool) (*netlink.Bridge, error) {
+	linkAttrs := netlink.NewLinkAttrs()
+	linkAttrs.Name = brName
+	linkAttrs.MTU = mtu
 	br := &netlink.Bridge{
-		LinkAttrs: netlink.LinkAttrs{
-			Name: brName,
-			MTU:  mtu,
-			// Let kernel use default txqueuelen; leaving it unset
-			// means 0, and a zero-length TX queue messes up FIFO
-			// traffic shapers which use TX queue length as the
-			// default packet limit
-			TxQLen: -1,
-		},
+		LinkAttrs: linkAttrs,
 	}
 	if vlanFiltering {
 		br.VlanFiltering = &vlanFiltering
@@ -392,7 +388,7 @@ func ensureVlanInterface(br *netlink.Bridge, vlanID int, preserveDefaultVlan boo
 			return nil, fmt.Errorf("faild to find host namespace: %v", err)
 		}
 
-		_, brGatewayIface, err := setupVeth(hostNS, br, name, br.MTU, false, vlanID, nil, preserveDefaultVlan, "")
+		_, brGatewayIface, err := setupVeth(hostNS, br, name, br.MTU, false, vlanID, nil, preserveDefaultVlan, "", false)
 		if err != nil {
 			return nil, fmt.Errorf("faild to create vlan gateway %q: %v", name, err)
 		}
@@ -411,7 +407,18 @@ func ensureVlanInterface(br *netlink.Bridge, vlanID int, preserveDefaultVlan boo
 	return brGatewayVeth, nil
 }
 
-func setupVeth(netns ns.NetNS, br *netlink.Bridge, ifName string, mtu int, hairpinMode bool, vlanID int, vlans []int, preserveDefaultVlan bool, mac string) (*current.Interface, *current.Interface, error) {
+func setupVeth(
+	netns ns.NetNS,
+	br *netlink.Bridge,
+	ifName string,
+	mtu int,
+	hairpinMode bool,
+	vlanID int,
+	vlans []int,
+	preserveDefaultVlan bool,
+	mac string,
+	portIsolation bool,
+) (*current.Interface, *current.Interface, error) {
 	contIface := &current.Interface{}
 	hostIface := &current.Interface{}
 
@@ -446,6 +453,11 @@ func setupVeth(netns ns.NetNS, br *netlink.Bridge, ifName string, mtu int, hairp
 	// set hairpin mode
 	if err = netlink.LinkSetHairpin(hostVeth, hairpinMode); err != nil {
 		return nil, nil, fmt.Errorf("failed to setup hairpin mode for %v: %v", hostVeth.Attrs().Name, err)
+	}
+
+	// set isolation mode
+	if err = netlink.LinkSetIsolated(hostVeth, portIsolation); err != nil {
+		return nil, nil, fmt.Errorf("failed to set isolated on for %v: %v", hostVeth.Attrs().Name, err)
 	}
 
 	if (vlanID != 0 || len(vlans) > 0) && !preserveDefaultVlan {
@@ -554,7 +566,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 	defer netns.Close()
 
-	hostInterface, containerInterface, err := setupVeth(netns, br, args.IfName, n.MTU, n.HairpinMode, n.Vlan, n.vlans, n.PreserveDefaultVlan, n.mac)
+	hostInterface, containerInterface, err := setupVeth(netns, br, args.IfName, n.MTU, n.HairpinMode, n.Vlan, n.vlans, n.PreserveDefaultVlan, n.mac, n.PortIsolation)
 	if err != nil {
 		return err
 	}
@@ -673,12 +685,12 @@ func cmdAdd(args *skel.CmdArgs) error {
 		}
 
 		if n.IPMasq {
-			chain := utils.FormatChainName(n.Name, args.ContainerID)
-			comment := utils.FormatComment(n.Name, args.ContainerID)
+			ipns := []*net.IPNet{}
 			for _, ipc := range result.IPs {
-				if err = ip.SetupIPMasq(&ipc.Address, chain, comment); err != nil {
-					return err
-				}
+				ipns = append(ipns, &ipc.Address)
+			}
+			if err = ip.SetupIPMasqForNetworks(n.IPMasqBackend, ipns, n.Name, args.IfName, args.ContainerID); err != nil {
+				return err
 			}
 		}
 	} else if !n.DisableContainerInterface {
@@ -790,7 +802,6 @@ func cmdDel(args *skel.CmdArgs) error {
 		}
 		return err
 	})
-
 	if err != nil {
 		//  if NetNs is passed down by the Cloud Orchestration Engine, or if it called multiple times
 		// so don't return an error if the device is already removed.
@@ -815,12 +826,8 @@ func cmdDel(args *skel.CmdArgs) error {
 	}
 
 	if isLayer3 && n.IPMasq {
-		chain := utils.FormatChainName(n.Name, args.ContainerID)
-		comment := utils.FormatComment(n.Name, args.ContainerID)
-		for _, ipn := range ipnets {
-			if err := ip.TeardownIPMasq(ipn, chain, comment); err != nil {
-				return err
-			}
+		if err := ip.TeardownIPMasqForNetworks(ipnets, n.Name, args.IfName, args.ContainerID); err != nil {
+			return err
 		}
 	}
 
@@ -828,7 +835,13 @@ func cmdDel(args *skel.CmdArgs) error {
 }
 
 func main() {
-	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.All, bv.BuildString("bridge"))
+	skel.PluginMainFuncs(skel.CNIFuncs{
+		Add:    cmdAdd,
+		Check:  cmdCheck,
+		Del:    cmdDel,
+		Status: cmdStatus,
+		/* FIXME GC */
+	}, version.All, bv.BuildString("bridge"))
 }
 
 type cniBridgeIf struct {
@@ -1088,4 +1101,19 @@ func cmdCheck(args *skel.CmdArgs) error {
 
 func uniqueID(containerID, cniIface string) string {
 	return containerID + "-" + cniIface
+}
+
+func cmdStatus(args *skel.CmdArgs) error {
+	conf := NetConf{}
+	if err := json.Unmarshal(args.StdinData, &conf); err != nil {
+		return fmt.Errorf("failed to load netconf: %w", err)
+	}
+
+	if conf.IPAM.Type != "" {
+		if err := ipam.ExecStatus(conf.IPAM.Type, args.StdinData); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

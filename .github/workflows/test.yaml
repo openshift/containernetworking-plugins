@@ -1,10 +1,10 @@
 ---
 name: test
 
-on: ["push", "pull_request"]
+on:
+  pull_request: {}
 
 env:
-  GO_VERSION: "1.20"
   LINUX_ARCHES: "amd64 386 arm arm64 s390x mips64le ppc64le riscv64"
 
 jobs:
@@ -14,16 +14,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: setup go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: .github/go-version
       - uses: ibiqlik/action-yamllint@v3
         with:
           format: auto
-      - uses: golangci/golangci-lint-action@v3
+      - uses: golangci/golangci-lint-action@v6
         with:
+          version: v1.61.0
           args: -v
-          skip-cache: true
+  verify-vendor:
+    name: Verify vendor directory
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: .github/go-version
+      - name: Check module vendoring
+        run: |
+          go mod tidy
+          go mod vendor
+          test -z "$(git status --porcelain)" || (echo "please run 'go mod tidy && go mod vendor', and submit your changes"; exit 1)
   build:
     name: Build all linux architectures
     needs: lint
@@ -31,9 +45,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: setup go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: .github/go-version
       - name: Build on all supported architectures
         run: |
           set -e
@@ -53,11 +67,15 @@ jobs:
           sudo apt-get install linux-modules-extra-$(uname -r)
       - name: Install nftables
         run: sudo apt-get install nftables
+      - name: Install dnsmasq(dhcp server)
+        run: |
+          sudo apt-get install dnsmasq
+          sudo systemctl disable --now dnsmasq
       - uses: actions/checkout@v4
       - name: setup go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: .github/go-version
       - name: Set up Go for root
         run: |
           sudo ln -sf `which go` `sudo which go` || true
@@ -86,8 +104,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: setup go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: .github/go-version
       - name: test
         run: bash ./test_windows.sh

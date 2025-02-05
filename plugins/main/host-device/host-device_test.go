@@ -231,7 +231,7 @@ type (
 
 func newTesterByVersion(version string) tester {
 	switch {
-	case strings.HasPrefix(version, "1.0."):
+	case strings.HasPrefix(version, "1."):
 		return &testerV10x{}
 	case strings.HasPrefix(version, "0.4."):
 		return &testerV04x{}
@@ -341,10 +341,10 @@ var _ = Describe("base functionality", func() {
 			// prepare ifname in original namespace
 			_ = originalNS.Do(func(ns.NetNS) error {
 				defer GinkgoRecover()
+				linkAttrs := netlink.NewLinkAttrs()
+				linkAttrs.Name = ifname
 				err := netlink.LinkAdd(&netlink.Dummy{
-					LinkAttrs: netlink.LinkAttrs{
-						Name: ifname,
-					},
+					LinkAttrs: linkAttrs,
 				})
 				Expect(err).NotTo(HaveOccurred())
 				origLink, err = netlink.LinkByName(ifname)
@@ -362,6 +362,15 @@ var _ = Describe("base functionality", func() {
 				"type": "host-device",
 				"device": %q
 			}`, ver, ifname)
+
+			// if v1.1 or greater, call CmdStatus
+			if testutils.SpecVersionHasSTATUS(ver) {
+				err := testutils.CmdStatus(func() error {
+					return cmdStatus(&skel.CmdArgs{StdinData: []byte(conf)})
+				})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
 			args := &skel.CmdArgs{
 				ContainerID: "dummy",
 				Netns:       targetNS.Path(),
@@ -422,10 +431,10 @@ var _ = Describe("base functionality", func() {
 			// prepare host device in original namespace
 			_ = originalNS.Do(func(ns.NetNS) error {
 				defer GinkgoRecover()
+				linkAttrs := netlink.NewLinkAttrs()
+				linkAttrs.Name = ifname
 				err := netlink.LinkAdd(&netlink.Dummy{
-					LinkAttrs: netlink.LinkAttrs{
-						Name: ifname,
-					},
+					LinkAttrs: linkAttrs,
 				})
 				Expect(err).NotTo(HaveOccurred())
 				origLink, err = netlink.LinkByName(ifname)
@@ -483,10 +492,10 @@ var _ = Describe("base functionality", func() {
 			// create another conflict host device with same name "dummy0"
 			_ = originalNS.Do(func(ns.NetNS) error {
 				defer GinkgoRecover()
+				linkAttrs := netlink.NewLinkAttrs()
+				linkAttrs.Name = ifname
 				err := netlink.LinkAdd(&netlink.Dummy{
-					LinkAttrs: netlink.LinkAttrs{
-						Name: ifname,
-					},
+					LinkAttrs: linkAttrs,
 				})
 				Expect(err).NotTo(HaveOccurred())
 				conflictLink, err = netlink.LinkByName(ifname)
@@ -608,10 +617,10 @@ var _ = Describe("base functionality", func() {
 			// prepare ifname in original namespace
 			_ = originalNS.Do(func(ns.NetNS) error {
 				defer GinkgoRecover()
+				linkAttrs := netlink.NewLinkAttrs()
+				linkAttrs.Name = ifname
 				err := netlink.LinkAdd(&netlink.Dummy{
-					LinkAttrs: netlink.LinkAttrs{
-						Name: ifname,
-					},
+					LinkAttrs: linkAttrs,
 				})
 				Expect(err).NotTo(HaveOccurred())
 				origLink, err = netlink.LinkByName(ifname)
@@ -720,10 +729,10 @@ var _ = Describe("base functionality", func() {
 			// prepare ifname in original namespace
 			_ = originalNS.Do(func(ns.NetNS) error {
 				defer GinkgoRecover()
+				linkAttrs := netlink.NewLinkAttrs()
+				linkAttrs.Name = ifname
 				err := netlink.LinkAdd(&netlink.Dummy{
-					LinkAttrs: netlink.LinkAttrs{
-						Name: ifname,
-					},
+					LinkAttrs: linkAttrs,
 				})
 				Expect(err).NotTo(HaveOccurred())
 				origLink, err = netlink.LinkByName(ifname)
@@ -898,16 +907,81 @@ var _ = Describe("base functionality", func() {
 			})
 		})
 
+		It(fmt.Sprintf("Works with a valid %s config on auxiliary device", ver), func() {
+			var origLink netlink.Link
+			ifname := "eth0"
+
+			fs := &fakeFilesystem{
+				dirs: []string{
+					fmt.Sprintf("sys/bus/auxiliary/devices/mlx5_core.sf.4/net/%s", ifname),
+				},
+			}
+			defer fs.use()()
+
+			// prepare ifname in original namespace
+			_ = originalNS.Do(func(ns.NetNS) error {
+				defer GinkgoRecover()
+				linkAttrs := netlink.NewLinkAttrs()
+				linkAttrs.Name = ifname
+				err := netlink.LinkAdd(&netlink.Dummy{
+					LinkAttrs: linkAttrs,
+				})
+				Expect(err).NotTo(HaveOccurred())
+				origLink, err = netlink.LinkByName(ifname)
+				Expect(err).NotTo(HaveOccurred())
+				err = netlink.LinkSetUp(origLink)
+				Expect(err).NotTo(HaveOccurred())
+				return nil
+			})
+
+			// call CmdAdd
+			cniName := "net1"
+			conf := fmt.Sprintf(`{
+							"cniVersion": "%s",
+							"name": "cni-plugin-host-device-test",
+							"type": "host-device",
+							"runtimeConfig": {"deviceID": %q}
+						}`, ver, "mlx5_core.sf.4")
+			args := &skel.CmdArgs{
+				ContainerID: "dummy",
+				IfName:      cniName,
+				Netns:       targetNS.Path(),
+				StdinData:   []byte(conf),
+			}
+			var resI types.Result
+			err := originalNS.Do(func(ns.NetNS) error {
+				defer GinkgoRecover()
+				var err error
+				resI, _, err = testutils.CmdAddWithArgs(args, func() error { return cmdAdd(args) })
+				return err
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// check that the result was sane
+			t := newTesterByVersion(ver)
+			t.expectInterfaces(resI, cniName, origLink.Attrs().HardwareAddr.String(), targetNS.Path())
+
+			// call CmdDel
+			_ = originalNS.Do(func(ns.NetNS) error {
+				defer GinkgoRecover()
+				err = testutils.CmdDelWithArgs(args, func() error {
+					return cmdDel(args)
+				})
+				Expect(err).NotTo(HaveOccurred())
+				return nil
+			})
+		})
+
 		It(fmt.Sprintf("Works with a valid %s config with IPAM", ver), func() {
 			var origLink netlink.Link
 
 			// prepare ifname in original namespace
 			_ = originalNS.Do(func(ns.NetNS) error {
 				defer GinkgoRecover()
+				linkAttrs := netlink.NewLinkAttrs()
+				linkAttrs.Name = ifname
 				err := netlink.LinkAdd(&netlink.Dummy{
-					LinkAttrs: netlink.LinkAttrs{
-						Name: ifname,
-					},
+					LinkAttrs: linkAttrs,
 				})
 				Expect(err).NotTo(HaveOccurred())
 				origLink, err = netlink.LinkByName(ifname)
@@ -1028,10 +1102,10 @@ var _ = Describe("base functionality", func() {
 			// prepare host device in original namespace
 			_ = originalNS.Do(func(ns.NetNS) error {
 				defer GinkgoRecover()
+				linkAttrs := netlink.NewLinkAttrs()
+				linkAttrs.Name = ifname
 				err := netlink.LinkAdd(&netlink.Dummy{
-					LinkAttrs: netlink.LinkAttrs{
-						Name: ifname,
-					},
+					LinkAttrs: linkAttrs,
 				})
 				Expect(err).NotTo(HaveOccurred())
 				origLink, err = netlink.LinkByName(ifname)
@@ -1089,10 +1163,10 @@ var _ = Describe("base functionality", func() {
 			// create another conflict host device with same name "dummy0"
 			_ = originalNS.Do(func(ns.NetNS) error {
 				defer GinkgoRecover()
+				linkAttrs := netlink.NewLinkAttrs()
+				linkAttrs.Name = ifname
 				err := netlink.LinkAdd(&netlink.Dummy{
-					LinkAttrs: netlink.LinkAttrs{
-						Name: ifname,
-					},
+					LinkAttrs: linkAttrs,
 				})
 				Expect(err).NotTo(HaveOccurred())
 				conflictLink, err = netlink.LinkByName(ifname)
@@ -1149,6 +1223,114 @@ var _ = Describe("base functionality", func() {
 				return nil
 			})
 		})
+
+		It(fmt.Sprintf("Test CmdAdd/Del when additioinal interface alreay exists in container ns with same name. %s config", ver), func() {
+			var (
+				origLink      netlink.Link
+				containerLink netlink.Link
+			)
+
+			hostIfname := "eth0"
+			containerAdditionalIfname := "eth0"
+
+			// prepare host device in original namespace
+			_ = originalNS.Do(func(ns.NetNS) error {
+				defer GinkgoRecover()
+				linkAttrs := netlink.NewLinkAttrs()
+				linkAttrs.Name = hostIfname
+				err := netlink.LinkAdd(&netlink.Dummy{
+					LinkAttrs: linkAttrs,
+				})
+				Expect(err).NotTo(HaveOccurred())
+				origLink, err = netlink.LinkByName(hostIfname)
+				Expect(err).NotTo(HaveOccurred())
+				err = netlink.LinkSetUp(origLink)
+				Expect(err).NotTo(HaveOccurred())
+				return nil
+			})
+
+			// prepare device in container namespace with same name as host device
+			_ = targetNS.Do(func(ns.NetNS) error {
+				defer GinkgoRecover()
+				linkAttrs := netlink.NewLinkAttrs()
+				linkAttrs.Name = containerAdditionalIfname
+				err := netlink.LinkAdd(&netlink.Dummy{
+					LinkAttrs: linkAttrs,
+				})
+				Expect(err).NotTo(HaveOccurred())
+				containerLink, err = netlink.LinkByName(containerAdditionalIfname)
+				Expect(err).NotTo(HaveOccurred())
+				err = netlink.LinkSetUp(containerLink)
+				Expect(err).NotTo(HaveOccurred())
+				return nil
+			})
+
+			// call CmdAdd
+			cniName := "net1"
+			conf := fmt.Sprintf(`{
+				"cniVersion": "%s",
+				"name": "cni-plugin-host-device-test",
+				"type": "host-device",
+				"device": %q
+			}`, ver, hostIfname)
+			args := &skel.CmdArgs{
+				ContainerID: "dummy",
+				Netns:       targetNS.Path(),
+				IfName:      cniName,
+				StdinData:   []byte(conf),
+			}
+			var resI types.Result
+			err := originalNS.Do(func(ns.NetNS) error {
+				defer GinkgoRecover()
+				var err error
+				resI, _, err = testutils.CmdAddWithArgs(args, func() error { return cmdAdd(args) })
+				return err
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// check that the result was sane
+			t := newTesterByVersion(ver)
+			t.expectInterfaces(resI, cniName, origLink.Attrs().HardwareAddr.String(), targetNS.Path())
+
+			// assert that host device is now in the target namespace and is up
+			_ = targetNS.Do(func(ns.NetNS) error {
+				defer GinkgoRecover()
+				link, err := netlink.LinkByName(cniName)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(link.Attrs().HardwareAddr).To(Equal(origLink.Attrs().HardwareAddr))
+				Expect(link.Attrs().Flags & net.FlagUp).To(Equal(net.FlagUp))
+				return nil
+			})
+
+			// call CmdDel, expect it to succeed
+			_ = originalNS.Do(func(ns.NetNS) error {
+				defer GinkgoRecover()
+				err = testutils.CmdDelWithArgs(args, func() error {
+					return cmdDel(args)
+				})
+				Expect(err).ToNot(HaveOccurred())
+				return nil
+			})
+
+			// assert container interface "eth0" still exists in target namespace and is up
+			err = targetNS.Do(func(ns.NetNS) error {
+				defer GinkgoRecover()
+				link, err := netlink.LinkByName(containerAdditionalIfname)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(link.Attrs().HardwareAddr).To(Equal(containerLink.Attrs().HardwareAddr))
+				Expect(link.Attrs().Flags & net.FlagUp).To(Equal(net.FlagUp))
+				return nil
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// assert that host device is now back in the original namespace
+			_ = originalNS.Do(func(ns.NetNS) error {
+				defer GinkgoRecover()
+				_, err := netlink.LinkByName(hostIfname)
+				Expect(err).NotTo(HaveOccurred())
+				return nil
+			})
+		})
 	}
 })
 
@@ -1181,6 +1363,7 @@ func (fs *fakeFilesystem) use() func() {
 	}
 
 	sysBusPCI = path.Join(fs.rootDir, "/sys/bus/pci/devices")
+	sysBusAuxiliary = path.Join(fs.rootDir, "/sys/bus/auxiliary/devices")
 
 	return func() {
 		// remove temporary fake fs

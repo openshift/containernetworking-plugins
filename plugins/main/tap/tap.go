@@ -137,10 +137,9 @@ func createTapWithIptool(tmpName string, mtu int, multiqueue bool, mac string, o
 }
 
 func createLinkWithNetlink(tmpName string, mtu int, nsFd int, multiqueue bool, mac string, owner *uint32, group *uint32) error {
-	linkAttrs := netlink.LinkAttrs{
-		Name:      tmpName,
-		Namespace: netlink.NsFd(nsFd),
-	}
+	linkAttrs := netlink.NewLinkAttrs()
+	linkAttrs.Name = tmpName
+	linkAttrs.Namespace = netlink.NsFd(nsFd)
 	if mtu != 0 {
 		linkAttrs.MTU = mtu
 	}
@@ -371,7 +370,6 @@ func cmdDel(args *skel.CmdArgs) error {
 		}
 		return nil
 	})
-
 	if err != nil {
 		//  if NetNs is passed down by the Cloud Orchestration Engine, or if it called multiple times
 		// so don't return an error if the device is already removed.
@@ -387,7 +385,13 @@ func cmdDel(args *skel.CmdArgs) error {
 }
 
 func main() {
-	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.All, bv.BuildString("tap"))
+	skel.PluginMainFuncs(skel.CNIFuncs{
+		Add:    cmdAdd,
+		Check:  cmdCheck,
+		Del:    cmdDel,
+		Status: cmdStatus,
+		/* FIXME GC */
+	}, version.All, bv.BuildString("tap"))
 }
 
 func cmdCheck(args *skel.CmdArgs) error {
@@ -455,4 +459,19 @@ func cmdCheck(args *skel.CmdArgs) error {
 		}
 		return nil
 	})
+}
+
+func cmdStatus(args *skel.CmdArgs) error {
+	conf := NetConf{}
+	if err := json.Unmarshal(args.StdinData, &conf); err != nil {
+		return fmt.Errorf("failed to load netconf: %w", err)
+	}
+
+	if conf.IPAM.Type != "" {
+		if err := ipam.ExecStatus(conf.IPAM.Type, args.StdinData); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
