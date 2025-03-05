@@ -114,6 +114,13 @@ func ipvlanAddCheckDelTest(conf, masterName string, originalNS, targetNS ns.NetN
 	err = originalNS.Do(func(ns.NetNS) error {
 		defer GinkgoRecover()
 
+		if testutils.SpecVersionHasSTATUS(cniVersion) {
+			err = testutils.CmdStatus(func() error {
+				return cmdStatus(args)
+			})
+			Expect(err).NotTo(HaveOccurred())
+		}
+
 		result, _, err = testutils.CmdAddWithArgs(args, func() error {
 			return cmdAdd(args)
 		})
@@ -214,7 +221,7 @@ type (
 
 func newTesterByVersion(version string) tester {
 	switch {
-	case strings.HasPrefix(version, "1.0."):
+	case strings.HasPrefix(version, "1."):
 		return &testerV10x{}
 	case strings.HasPrefix(version, "0.4.") || strings.HasPrefix(version, "0.3."):
 		return &testerV04x{}
@@ -281,11 +288,11 @@ var _ = Describe("ipvlan Operations", func() {
 		err = originalNS.Do(func(ns.NetNS) error {
 			defer GinkgoRecover()
 
+			linkAttrs := netlink.NewLinkAttrs()
+			linkAttrs.Name = MASTER_NAME
 			// Add master
 			err = netlink.LinkAdd(&netlink.Dummy{
-				LinkAttrs: netlink.LinkAttrs{
-					Name: MASTER_NAME,
-				},
+				LinkAttrs: linkAttrs,
 			})
 			Expect(err).NotTo(HaveOccurred())
 			_, err = netlink.LinkByName(MASTER_NAME)
@@ -297,11 +304,11 @@ var _ = Describe("ipvlan Operations", func() {
 		err = targetNS.Do(func(ns.NetNS) error {
 			defer GinkgoRecover()
 
+			linkAttrs := netlink.NewLinkAttrs()
+			linkAttrs.Name = MASTER_NAME_INCONTAINER
 			// Add master
 			err = netlink.LinkAdd(&netlink.Dummy{
-				LinkAttrs: netlink.LinkAttrs{
-					Name: MASTER_NAME_INCONTAINER,
-				},
+				LinkAttrs: linkAttrs,
 			})
 			Expect(err).NotTo(HaveOccurred())
 			_, err = netlink.LinkByName(MASTER_NAME_INCONTAINER)

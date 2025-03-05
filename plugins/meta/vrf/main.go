@@ -39,7 +39,13 @@ type VRFNetConf struct {
 }
 
 func main() {
-	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.VersionsStartingFrom("0.3.1"), bv.BuildString("vrf"))
+	skel.PluginMainFuncs(skel.CNIFuncs{
+		Add:   cmdAdd,
+		Check: cmdCheck,
+		Del:   cmdDel,
+		/* FIXME GC */
+		/* FIXME Status */
+	}, version.VersionsStartingFrom("0.3.1"), bv.BuildString("vrf"))
 }
 
 func cmdAdd(args *skel.CmdArgs) error {
@@ -75,7 +81,6 @@ func cmdAdd(args *skel.CmdArgs) error {
 		}
 		return nil
 	})
-
 	if err != nil {
 		return fmt.Errorf("cmdAdd failed: %v", err)
 	}
@@ -121,7 +126,6 @@ func cmdDel(args *skel.CmdArgs) error {
 		}
 		return nil
 	})
-
 	if err != nil {
 		//  if NetNs is passed down by the Cloud Orchestration Engine, or if it called multiple times
 		// so don't return an error if the device is already removed.

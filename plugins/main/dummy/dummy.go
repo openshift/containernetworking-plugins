@@ -43,11 +43,12 @@ func parseNetConf(bytes []byte) (*types.NetConf, error) {
 func createDummy(ifName string, netns ns.NetNS) (*current.Interface, error) {
 	dummy := &current.Interface{}
 
+	linkAttrs := netlink.NewLinkAttrs()
+	linkAttrs.Name = ifName
+	linkAttrs.Namespace = netlink.NsFd(int(netns.Fd()))
+
 	dm := &netlink.Dummy{
-		LinkAttrs: netlink.LinkAttrs{
-			Name:      ifName,
-			Namespace: netlink.NsFd(int(netns.Fd())),
-		},
+		LinkAttrs: linkAttrs,
 	}
 
 	if err := netlink.LinkAdd(dm); err != nil {
@@ -136,7 +137,6 @@ func cmdAdd(args *skel.CmdArgs) error {
 	err = netns.Do(func(_ ns.NetNS) error {
 		return ipam.ConfigureIface(args.IfName, result)
 	})
-
 	if err != nil {
 		return err
 	}
@@ -165,7 +165,6 @@ func cmdDel(args *skel.CmdArgs) error {
 		}
 		return err
 	})
-
 	if err != nil {
 		//  if NetNs is passed down by the Cloud Orchestration Engine, or if it called multiple times
 		// so don't return an error if the device is already removed.
@@ -181,7 +180,13 @@ func cmdDel(args *skel.CmdArgs) error {
 }
 
 func main() {
-	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.All, bv.BuildString("dummy"))
+	skel.PluginMainFuncs(skel.CNIFuncs{
+		Add:    cmdAdd,
+		Check:  cmdCheck,
+		Del:    cmdDel,
+		Status: cmdStatus,
+		/* FIXME GC */
+	}, version.All, bv.BuildString("dummy"))
 }
 
 func cmdCheck(args *skel.CmdArgs) error {
@@ -286,6 +291,19 @@ func validateCniContainerInterface(intf current.Interface) error {
 
 	if link.Attrs().Flags&net.FlagUp != net.FlagUp {
 		return fmt.Errorf("Interface %s is down", intf.Name)
+	}
+
+	return nil
+}
+
+func cmdStatus(args *skel.CmdArgs) error {
+	conf := types.NetConf{}
+	if err := json.Unmarshal(args.StdinData, &conf); err != nil {
+		return fmt.Errorf("failed to load netconf: %w", err)
+	}
+
+	if err := ipam.ExecStatus(conf.IPAM.Type, args.StdinData); err != nil {
+		return err
 	}
 
 	return nil
