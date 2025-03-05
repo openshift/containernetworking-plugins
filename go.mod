@@ -1,7 +1,6 @@
 module github.com/containernetworking/plugins
 
 go 1.23
-
 require (
 	github.com/Microsoft/hcsshim v0.12.9
 	github.com/alexflint/go-filemutex v1.3.0
@@ -16,9 +15,9 @@ require (
 	github.com/onsi/ginkgo/v2 v2.22.2
 	github.com/onsi/gomega v1.36.2
 	github.com/opencontainers/selinux v1.11.1
-	github.com/safchain/ethtool v0.5.9
+	github.com/safchain/ethtool v0.5.10
 	github.com/vishvananda/netlink v1.3.0
-	golang.org/x/sys v0.29.0
+	golang.org/x/sys v0.31.0
 	sigs.k8s.io/knftables v0.0.18
 )
 
