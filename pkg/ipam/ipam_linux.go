@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"time"
 
 	"github.com/vishvananda/netlink"
 
@@ -29,6 +30,8 @@ import (
 const (
 	// Note: use slash as separator so we can have dots in interface name (VLANs)
 	DisableIPv6SysctlTemplate = "net/ipv6/conf/%s/disable_ipv6"
+
+	dadSettleTimeout = 5 * time.Second
 )
 
 // ConfigureIface takes the result of IPAM plugin and
@@ -100,7 +103,10 @@ func ConfigureIface(ifName string, res *current.Result) error {
 	}
 
 	if v6gw != nil {
-		ip.SettleAddresses(ifName, 10)
+		err = ip.SettleAddresses(ifName, dadSettleTimeout)
+		if err != nil {
+			return fmt.Errorf("failed to settle addresses for %q: %v", ifName, err)
+		}
 	}
 
 	for _, r := range res.Routes {
