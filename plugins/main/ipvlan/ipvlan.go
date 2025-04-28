@@ -195,7 +195,7 @@ func getDefaultRouteInterfaceName() (string, error) {
 	}
 
 	for _, v := range routeToDstIP {
-		if v.Dst == nil {
+		if ip.IsIPNetZero(v.Dst) {
 			l, err := netlink.LinkByIndex(v.LinkIndex)
 			if err != nil {
 				return "", err
@@ -350,7 +350,13 @@ func cmdDel(args *skel.CmdArgs) error {
 }
 
 func main() {
-	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.All, bv.BuildString("ipvlan"))
+	skel.PluginMainFuncs(skel.CNIFuncs{
+		Add:   cmdAdd,
+		Check: cmdCheck,
+		Del:   cmdDel,
+		/* FIXME GC */
+		/* FIXME Status */
+	}, version.All, bv.BuildString("ipvlan"))
 }
 
 func cmdCheck(args *skel.CmdArgs) error {

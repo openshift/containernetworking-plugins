@@ -13,3 +13,4 @@ exclude:
     - vendor/github.com/onsi/ginkgo/v2/internal
     - vendor/golang.org/x/tools/cmd/stringer
     - vendor/golang.org/x/tools/internal/pkgbits
+    - vendor/github.com/containernetworking/cni/libcni
