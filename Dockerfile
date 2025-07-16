@@ -19,14 +19,12 @@ FROM registry.ci.openshift.org/ocp/builder:rhel-8-golang-1.23-openshift-4.19 AS 
 ADD . /usr/src/plugins
 WORKDIR /usr/src/plugins
 ENV CGO_ENABLED=0
-RUN yum install -y dos2unix
 RUN ./build_windows.sh && \
     cd /usr/src/plugins/bin
 WORKDIR /
 
 FROM registry.ci.openshift.org/ocp/4.19:base-rhel9
-RUN dnf install -y util-linux && dnf clean all && \
-    mkdir -p /usr/src/plugins/bin && \
+RUN mkdir -p /usr/src/plugins/bin && \
     mkdir -p /usr/src/plugins/rhel8/bin && \
     mkdir -p /usr/src/plugins/rhel9/bin && \
     mkdir -p /usr/src/plugins/windows/bin
