@@ -20,7 +20,7 @@ RUN mkdir -p /usr/src/plugins/bin && \
     mkdir -p /usr/src/plugins/rhel9/bin && \
     mkdir -p /usr/src/plugins/windows/bin
 COPY --from=rhel9 /usr/src/plugins/bin/* /usr/src/plugins/bin/
-COPY --from=rhel9 /usr/src/plugins/bin/* /usr/src/plugins/rhel9/bin/
+RUN ln /usr/src/plugins/bin/* /usr/src/plugins/rhel9/bin/
 COPY --from=windows /usr/src/plugins/bin/* /usr/src/plugins/windows/bin/
 
 LABEL io.k8s.display-name="Container Networking Plugins" \
